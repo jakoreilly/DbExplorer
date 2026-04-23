@@ -1,0 +1,114 @@
+@page "/explore/{SchemaName}/{ObjectName}"
+@using DbExplorer.Core.Interfaces
+@using DbExplorer.Core.Models
+@using Microsoft.AspNetCore.Components.Web
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@inject IMetadataService MetadataService
+@inject IDataBrowsingService DataService
+@inject NavigationManager Nav
+@rendermode InteractiveServer
+
+<PageTitle>@SchemaName.@ObjectName — DbExplorer</PageTitle>
+
+<div class="explorer-page">
+    <h2>@SchemaName.<strong>@ObjectName</strong></h2>
+
+    <div class="tabs">
+        <button class="tab @ActiveTab("columns")" @onclick='() => tab = "columns"'>Columns</button>
+        @if (objectType is "TABLE")
+        {
+            <button class="tab @ActiveTab("indexes")" @onclick='() => tab = "indexes"'>Indexes</button>
+            <button class="tab @ActiveTab("fkeys")" @onclick='() => tab = "fkeys"'>Foreign Keys</button>
+        }
+        @if (objectType is "VIEW" or "PROCEDURE" or "SCALAR_FUNCTION" or "TABLE_FUNCTION")
+        {
+            <button class="tab @ActiveTab("definition")" @onclick='() => tab = "definition"'>Definition</button>
+        }
+        @if (objectType is "TABLE" or "VIEW")
+        {
+            <button class="tab @ActiveTab("data")" @onclick='() => tab = "data"'>Data</button>
+        }
+    </div>
+
+    @if (isLoading)
+    {
+        <p>Loading…</p>
+    }
+    else if (error is not null)
+    {
+        <div class="error">@error</div>
+    }
+    else
+    {
+        @switch (tab)
+        {
+            case "columns":
+                <ColumnsPanel Columns="columns" />
+                break;
+            case "indexes":
+                <IndexesPanel Indexes="indexes" />
+                break;
+            case "fkeys":
+                <ForeignKeysPanel ForeignKeys="foreignKeys" />
+                break;
+            case "definition":
+                <DefinitionPanel Definition="definition" />
+                break;
+            case "data":
+                <DataGrid SchemaName="@SchemaName" ObjectName="@ObjectName" />
+                break;
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string SchemaName { get; set; } = "";
+    [Parameter] public string ObjectName { get; set; } = "";
+
+    private string tab = "columns";
+    private string? objectType;
+    private IReadOnlyList<ColumnInfo>? columns;
+    private IReadOnlyList<IndexInfo>? indexes;
+    private IReadOnlyList<ForeignKeyInfo>? foreignKeys;
+    private ObjectDefinition? definition;
+    private bool isLoading = true;
+    private string? error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        isLoading = true;
+        error = null;
+        tab = "columns";
+
+        try
+        {
+            var allObjects = await MetadataService.GetObjectsAsync(SchemaName);
+            var obj = allObjects.FirstOrDefault(o =>
+                string.Equals(o.ObjectName, ObjectName, StringComparison.OrdinalIgnoreCase));
+            objectType = obj?.ObjectType;
+
+            columns = await MetadataService.GetColumnsAsync(SchemaName, ObjectName);
+
+            if (objectType is "TABLE")
+            {
+                indexes = await MetadataService.GetIndexesAsync(SchemaName, ObjectName);
+                foreignKeys = await MetadataService.GetForeignKeysAsync(SchemaName, ObjectName);
+            }
+
+            if (objectType is "VIEW" or "PROCEDURE" or "SCALAR_FUNCTION" or "TABLE_FUNCTION")
+            {
+                definition = await MetadataService.GetObjectDefinitionAsync(SchemaName, ObjectName);
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private string ActiveTab(string name) => tab == name ? "active" : "";
+}

@@ -1,0 +1,104 @@
+@using DbExplorer.Core.Interfaces
+@using DbExplorer.Core.Models
+@using Microsoft.AspNetCore.Components.Web
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@inject IMetadataService MetadataService
+@inject NavigationManager Nav
+@rendermode InteractiveServer
+
+<div class="object-tree">
+    <div class="search-box">
+        <input @bind="searchTerm" @bind:event="oninput" placeholder="Filter objects…" />
+    </div>
+
+    @if (isLoading)
+    {
+        <p class="loading">Loading…</p>
+    }
+    else if (loadError is not null)
+    {
+        <div class="error">Failed to load database objects: @loadError</div>
+    }
+    else if (schemas is not null)
+    {
+        foreach (var schema in schemas)
+        {
+            <div class="schema-node">
+                <button class="schema-toggle" @onclick="() => ToggleSchema(schema.SchemaName)">
+                    @(expandedSchemas.Contains(schema.SchemaName) ? "▾" : "▸") @schema.SchemaName
+                </button>
+
+                @if (expandedSchemas.Contains(schema.SchemaName) && objectsBySchema.TryGetValue(schema.SchemaName, out var objs))
+                {
+                    foreach (var group in objs.GroupBy(o => o.ObjectType))
+                    {
+                        <div class="type-group">
+                            <span class="type-label">@group.Key</span>
+                            @foreach (var obj in group.Where(o =>
+                                string.IsNullOrWhiteSpace(searchTerm) ||
+                                o.ObjectName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                <button class="object-node @(selectedObject == obj ? "selected" : "")"
+                                        @onclick="() => SelectObject(obj)">
+                                    @obj.ObjectName
+                                </button>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private IReadOnlyList<SchemaInfo>? schemas;
+    private Dictionary<string, IReadOnlyList<DatabaseObjectInfo>> objectsBySchema = new();
+    private HashSet<string> expandedSchemas = new();
+    private DatabaseObjectInfo? selectedObject;
+    private string searchTerm = "";
+    private bool isLoading = true;
+    private string? loadError;
+
+    [Inject] private ILogger<ObjectTree> Logger { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            schemas = await MetadataService.GetSchemasAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to load schemas in ObjectTree");
+            loadError = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ToggleSchema(string schemaName)
+    {
+        if (expandedSchemas.Contains(schemaName))
+        {
+            expandedSchemas.Remove(schemaName);
+        }
+        else
+        {
+            expandedSchemas.Add(schemaName);
+            if (!objectsBySchema.ContainsKey(schemaName))
+            {
+                var objects = await MetadataService.GetObjectsAsync(schemaName);
+                objectsBySchema[schemaName] = objects;
+            }
+        }
+    }
+
+    private void SelectObject(DatabaseObjectInfo obj)
+    {
+        selectedObject = obj;
+        Nav.NavigateTo($"/explore/{Uri.EscapeDataString(obj.SchemaName)}/{Uri.EscapeDataString(obj.ObjectName)}");
+    }
+}

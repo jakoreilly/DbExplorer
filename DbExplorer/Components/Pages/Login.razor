@@ -1,0 +1,31 @@
+@page "/login"
+@attribute [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+
+<PageTitle>Sign In — DbExplorer</PageTitle>
+
+<div class="login-container">
+    <h2>DbExplorer — Sign In</h2>
+
+    @if (Error)
+    {
+        <p class="error">Invalid username or password.</p>
+    }
+
+    <form method="post" action="/login">
+        <AntiforgeryToken />
+        <div class="form-group">
+            <label for="username">Username</label>
+            <input id="username" name="username" type="text" autocomplete="username" required />
+        </div>
+        <div class="form-group">
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <button type="submit">Sign In</button>
+    </form>
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    public bool Error { get; set; }
+}

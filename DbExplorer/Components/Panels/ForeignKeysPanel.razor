@@ -1,0 +1,34 @@
+@using DbExplorer.Core.Models
+
+<div class="panel fkeys-panel">
+    @if (ForeignKeys is null || ForeignKeys.Count == 0)
+    {
+        <p>No foreign keys found.</p>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr>
+                    <th>Constraint</th>
+                    <th>Column</th>
+                    <th>References</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var fk in ForeignKeys)
+                {
+                    <tr>
+                        <td>@fk.ConstraintName</td>
+                        <td>@fk.ColumnName</td>
+                        <td>@fk.ReferencedSchema.@fk.ReferencedTable (@fk.ReferencedColumn)</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<ForeignKeyInfo>? ForeignKeys { get; set; }
+}

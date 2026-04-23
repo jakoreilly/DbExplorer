@@ -1,0 +1,86 @@
+:root {
+    --sidebar-width: 280px;
+    --bg: #f5f6fa;
+    --surface: #ffffff;
+    --primary: #2563eb;
+    --text: #1e293b;
+    --muted: #64748b;
+    --border: #e2e8f0;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+
+/* Layout */
+.layout { display: flex; height: 100vh; overflow: hidden; }
+
+.sidebar {
+    width: var(--sidebar-width);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+.sidebar-header { padding: 1rem; border-bottom: 1px solid var(--border); }
+.sidebar-header h1 { font-size: 1.2rem; color: var(--primary); }
+
+.main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+.top-bar {
+    padding: 0.5rem 1rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+}
+
+.content { flex: 1; overflow-y: auto; padding: 1.5rem; }
+
+/* Object Tree */
+.object-tree { padding: 0.5rem; }
+.search-box input { width: 100%; padding: 0.4rem 0.6rem; border: 1px solid var(--border); border-radius: 4px; font-size: 0.85rem; }
+.schema-toggle { width: 100%; text-align: left; padding: 0.4rem 0.5rem; background: none; border: none; cursor: pointer; font-weight: 600; font-size: 0.9rem; }
+.schema-toggle:hover { background: var(--bg); }
+.type-group { padding-left: 1rem; }
+.type-label { display: block; font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; padding: 0.2rem 0.3rem; }
+.object-node { display: block; width: 100%; text-align: left; padding: 0.25rem 0.5rem; background: none; border: none; cursor: pointer; font-size: 0.85rem; border-radius: 3px; }
+.object-node:hover, .object-node.selected { background: #eff6ff; color: var(--primary); }
+
+/* Tabs */
+.tabs { display: flex; gap: 0.5rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
+.tab { padding: 0.5rem 1rem; background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; font-size: 0.9rem; }
+.tab.active { border-bottom-color: var(--primary); color: var(--primary); font-weight: 600; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+th { background: var(--bg); text-align: left; padding: 0.5rem 0.75rem; border-bottom: 2px solid var(--border); font-weight: 600; white-space: nowrap; }
+td { padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+tr:hover td { background: #f8faff; }
+
+/* Data Grid */
+.grid-toolbar { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+.grid-toolbar button { padding: 0.3rem 0.75rem; background: var(--primary); color: white; border: none; border-radius: 4px; cursor: pointer; }
+.grid-toolbar button:disabled { background: var(--muted); cursor: default; }
+.grid-scroll { overflow-x: auto; }
+.data-table td { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.csv-link { padding: 0.3rem 0.75rem; background: #16a34a; color: white; border-radius: 4px; text-decoration: none; font-size: 0.85rem; }
+
+/* Definition */
+.definition-code { background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; overflow: auto; font-family: 'Cascadia Code', 'Fira Code', monospace; font-size: 0.85rem; line-height: 1.5; white-space: pre; }
+
+/* Misc */
+.error { padding: 0.75rem; background: #fef2f2; border: 1px solid #fca5a5; border-radius: 4px; color: #dc2626; }
+.loading { padding: 1rem; color: var(--muted); }
+.welcome { padding: 2rem; }
+.logout-form button { padding: 0.3rem 0.75rem; background: none; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 0.85rem; }
+
+/* Login page */
+.login-container { max-width: 380px; margin: 6rem auto; padding: 2rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+.login-container h2 { margin-bottom: 1.5rem; font-size: 1.3rem; color: var(--primary); }
+.form-group { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 1rem; }
+.form-group label { font-size: 0.875rem; font-weight: 500; }
+.form-group input { padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: 4px; font-size: 0.9rem; }
+.login-container button[type="submit"] { width: 100%; padding: 0.55rem; background: var(--primary); color: white; border: none; border-radius: 4px; font-size: 0.95rem; cursor: pointer; }

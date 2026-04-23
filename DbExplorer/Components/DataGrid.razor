@@ -1,0 +1,117 @@
+@using DbExplorer.Core.Interfaces
+@using DbExplorer.Core.Models
+@inject IDataBrowsingService DataService
+@inject NavigationManager Nav
+
+<div class="panel data-grid-panel">
+    <div class="grid-toolbar">
+        <button @onclick="PrevPage" disabled="@(pageNumber <= 1)">← Prev</button>
+        <span>Page @pageNumber of @TotalPages (@totalCount rows)</span>
+        <button @onclick="NextPage" disabled="@(pageNumber >= TotalPages)">Next →</button>
+        <select @bind="pageSize" @bind:after="LoadData">
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="250">250</option>
+            <option value="500">500</option>
+        </select>
+        <a class="csv-link" href="@CsvUrl" target="_blank">Export CSV</a>
+    </div>
+
+    @if (isLoading)
+    {
+        <p>Loading data…</p>
+    }
+    else if (error is not null)
+    {
+        <div class="error">@error</div>
+    }
+    else if (rows is not null && rows.Count > 0)
+    {
+        <div class="grid-scroll">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        @foreach (var col in columns)
+                        {
+                            <th>@col</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in rows)
+                    {
+                        <tr>
+                            @foreach (var col in columns)
+                            {
+                                <td>@(row.Fields.TryGetValue(col, out var val) ? val?.ToString() : "")</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+    else
+    {
+        <p>No data.</p>
+    }
+</div>
+
+@code {
+    [Parameter] public string SchemaName { get; set; } = "";
+    [Parameter] public string ObjectName { get; set; } = "";
+
+    private int pageNumber = 1;
+    private int pageSize = 50;
+    private int totalCount;
+    private IReadOnlyList<DataRow>? rows;
+    private List<string> columns = [];
+    private bool isLoading = true;
+    private string? error;
+
+    private int TotalPages => pageSize > 0 ? (int)Math.Ceiling((double)totalCount / pageSize) : 1;
+    private string CsvUrl => $"/api/data/export-csv?schema={Uri.EscapeDataString(SchemaName)}&objectName={Uri.EscapeDataString(ObjectName)}&page={pageNumber}&pageSize={pageSize}";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        pageNumber = 1;
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        isLoading = true;
+        error = null;
+        try
+        {
+            var result = await DataService.GetPagedDataAsync(
+                SchemaName, ObjectName,
+                new PagingOptions { PageNumber = pageNumber, PageSize = pageSize });
+
+            rows = result.Items;
+            totalCount = result.TotalCount;
+
+            if (rows.Count > 0)
+                columns = rows[0].Fields.Keys.ToList();
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task PrevPage()
+    {
+        if (pageNumber > 1) { pageNumber--; await LoadData(); }
+    }
+
+    private async Task NextPage()
+    {
+        if (pageNumber < TotalPages) { pageNumber++; await LoadData(); }
+    }
+}
