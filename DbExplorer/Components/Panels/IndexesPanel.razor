@@ -1,0 +1,38 @@
+@using DbExplorer.Core.Models
+
+<div class="panel indexes-panel">
+    @if (Indexes is null || Indexes.Count == 0)
+    {
+        <p>No indexes found.</p>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr>
+                    <th>Index Name</th>
+                    <th>Columns</th>
+                    <th>Unique</th>
+                    <th>Primary Key</th>
+                    <th>Clustered</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var idx in Indexes)
+                {
+                    <tr>
+                        <td>@idx.IndexName</td>
+                        <td>@idx.Columns</td>
+                        <td>@(idx.IsUnique ? "YES" : "NO")</td>
+                        <td>@(idx.IsPrimaryKey ? "YES" : "NO")</td>
+                        <td>@(idx.IsClustered ? "YES" : "NO")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<IndexInfo>? Indexes { get; set; }
+}

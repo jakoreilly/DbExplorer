@@ -1,0 +1,42 @@
+@using DbExplorer.Core.Models
+
+<div class="panel columns-panel">
+    @if (Columns is null || Columns.Count == 0)
+    {
+        <p>No columns found.</p>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Column</th>
+                    <th>Data Type</th>
+                    <th>Nullable</th>
+                    <th>Max Length</th>
+                    <th>PK</th>
+                    <th>Default</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var col in Columns)
+                {
+                    <tr>
+                        <td>@col.OrdinalPosition</td>
+                        <td><strong>@col.ColumnName</strong></td>
+                        <td>@col.DataType@(col.MaxLength.HasValue ? $"({col.MaxLength})" : "")</td>
+                        <td>@(col.IsNullable ? "YES" : "NO")</td>
+                        <td>@col.MaxLength</td>
+                        <td>@(col.IsPrimaryKey ? "🔑" : "")</td>
+                        <td>@col.DefaultValue</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<ColumnInfo>? Columns { get; set; }
+}

@@ -1,0 +1,21 @@
+@inherits LayoutComponentBase
+
+<div class="layout">
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <h1>DbExplorer</h1>
+        </div>
+        <ObjectTree />
+    </nav>
+    <main class="main-content">
+        <div class="top-bar">
+            <form method="post" action="/logout" class="logout-form">
+                <AntiforgeryToken />
+                <button type="submit">Sign Out</button>
+            </form>
+        </div>
+        <article class="content">
+            @Body
+        </article>
+    </main>
+</div>

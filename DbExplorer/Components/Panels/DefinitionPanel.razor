@@ -1,0 +1,19 @@
+@using DbExplorer.Core.Models
+
+<div class="panel definition-panel">
+    @if (Definition is null)
+    {
+        <p>No definition available.</p>
+    }
+    else
+    {
+        <div class="definition-header">
+            <span>@Definition.ObjectType: @Definition.SchemaName.@Definition.ObjectName</span>
+        </div>
+        <pre class="definition-code"><code>@Definition.Definition</code></pre>
+    }
+</div>
+
+@code {
+    [Parameter] public ObjectDefinition? Definition { get; set; }
+}
