@@ -27,6 +27,7 @@ public interface IMetadataService
     Task<IReadOnlyList<ColumnInfo>> GetColumnsAsync(string schemaName, string objectName, CancellationToken ct = default);
     Task<IReadOnlyList<IndexInfo>> GetIndexesAsync(string schemaName, string tableName, CancellationToken ct = default);
     Task<IReadOnlyList<ForeignKeyInfo>> GetForeignKeysAsync(string schemaName, string tableName, CancellationToken ct = default);
+    Task<IReadOnlyList<TriggerInfo>> GetTriggersAsync(string schemaName, string tableName, CancellationToken ct = default);
     Task<ObjectDefinition?> GetObjectDefinitionAsync(string schemaName, string objectName, CancellationToken ct = default);
 }
 

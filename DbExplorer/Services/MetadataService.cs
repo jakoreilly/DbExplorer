@@ -264,4 +264,48 @@ public sealed class MetadataService(
             (string)row.ObjectType,
             (string?)row.Definition);
     }
+
+    public async Task<IReadOnlyList<TriggerInfo>> GetTriggersAsync(
+        string schemaName, string tableName, CancellationToken ct = default)
+    {
+        SqlIdentifierHelper.ThrowIfInvalidFormat(schemaName, nameof(schemaName));
+        SqlIdentifierHelper.ThrowIfInvalidFormat(tableName, nameof(tableName));
+
+        await using var conn = factory.Create();
+        await conn.OpenAsync(ct);
+
+        var rows = await conn.QueryAsync(
+            new CommandDefinition(
+                """
+                SELECT
+                    s.name  AS SchemaName,
+                    t.name  AS TableName,
+                    tr.name AS TriggerName,
+                    tr.is_disabled AS IsDisabled,
+                    STRING_AGG(
+                        CASE te.type_desc
+                            WHEN 'INSERT' THEN 'INSERT'
+                            WHEN 'UPDATE' THEN 'UPDATE'
+                            WHEN 'DELETE' THEN 'DELETE'
+                        END, ', '
+                    ) WITHIN GROUP (ORDER BY te.type_desc) AS Events
+                FROM sys.triggers tr
+                JOIN sys.tables t  ON tr.parent_id = t.object_id
+                JOIN sys.schemas s ON t.schema_id  = s.schema_id
+                JOIN sys.trigger_events te ON te.object_id = tr.object_id
+                WHERE s.name = @schema AND t.name = @table
+                GROUP BY s.name, t.name, tr.name, tr.is_disabled
+                ORDER BY tr.name
+                """,
+                new { schema = schemaName, table = tableName },
+                commandTimeout: TimeoutSeconds,
+                cancellationToken: ct));
+
+        return rows.Select(r => new TriggerInfo(
+            (string)r.SchemaName,
+            (string)r.TableName,
+            (string)r.TriggerName,
+            !((bool)r.IsDisabled),
+            (string)r.Events)).ToList();
+    }
 }

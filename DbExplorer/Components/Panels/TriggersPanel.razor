@@ -1,0 +1,34 @@
+@using DbExplorer.Core.Models
+
+<div class="panel triggers-panel">
+    @if (Triggers is null || Triggers.Count == 0)
+    {
+        <p>No triggers found.</p>
+    }
+    else
+    {
+        <table>
+            <thead>
+                <tr>
+                    <th>Trigger Name</th>
+                    <th>Events</th>
+                    <th>Enabled</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var trig in Triggers)
+                {
+                    <tr>
+                        <td>@trig.TriggerName</td>
+                        <td>@trig.Events</td>
+                        <td>@(trig.IsEnabled ? "YES" : "NO")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<TriggerInfo>? Triggers { get; set; }
+}

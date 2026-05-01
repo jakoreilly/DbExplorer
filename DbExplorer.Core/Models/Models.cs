@@ -49,6 +49,14 @@ public record ObjectDefinition(
     string? Definition
 );
 
+public record TriggerInfo(
+    string SchemaName,
+    string TableName,
+    string TriggerName,
+    bool IsEnabled,
+    string Events
+);
+
 public record PagedResult<T>(
     IReadOnlyList<T> Items,
     int PageNumber,

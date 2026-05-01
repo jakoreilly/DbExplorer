@@ -19,6 +19,7 @@
         {
             <button class="tab @ActiveTab("indexes")" @onclick='() => tab = "indexes"'>Indexes</button>
             <button class="tab @ActiveTab("fkeys")" @onclick='() => tab = "fkeys"'>Foreign Keys</button>
+            <button class="tab @ActiveTab("triggers")" @onclick='() => tab = "triggers"'>Triggers</button>
         }
         @if (objectType is "VIEW" or "PROCEDURE" or "SCALAR_FUNCTION" or "TABLE_FUNCTION")
         {
@@ -51,6 +52,9 @@
             case "fkeys":
                 <ForeignKeysPanel ForeignKeys="foreignKeys" />
                 break;
+            case "triggers":
+                <TriggersPanel Triggers="triggers" />
+                break;
             case "definition":
                 <DefinitionPanel Definition="definition" />
                 break;
@@ -70,6 +74,7 @@
     private IReadOnlyList<ColumnInfo>? columns;
     private IReadOnlyList<IndexInfo>? indexes;
     private IReadOnlyList<ForeignKeyInfo>? foreignKeys;
+    private IReadOnlyList<TriggerInfo>? triggers;
     private ObjectDefinition? definition;
     private bool isLoading = true;
     private string? error;
@@ -87,12 +92,20 @@
                 string.Equals(o.ObjectName, ObjectName, StringComparison.OrdinalIgnoreCase));
             objectType = obj?.ObjectType;
 
+            tab = objectType switch
+            {
+                "TABLE" or "VIEW" => "data",
+                "PROCEDURE" or "SCALAR_FUNCTION" or "TABLE_FUNCTION" => "definition",
+                _ => "columns"
+            };
+
             columns = await MetadataService.GetColumnsAsync(SchemaName, ObjectName);
 
             if (objectType is "TABLE")
             {
                 indexes = await MetadataService.GetIndexesAsync(SchemaName, ObjectName);
                 foreignKeys = await MetadataService.GetForeignKeysAsync(SchemaName, ObjectName);
+                triggers = await MetadataService.GetTriggersAsync(SchemaName, ObjectName);
             }
 
             if (objectType is "VIEW" or "PROCEDURE" or "SCALAR_FUNCTION" or "TABLE_FUNCTION")

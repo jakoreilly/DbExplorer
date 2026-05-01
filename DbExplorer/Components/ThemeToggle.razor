@@ -1,0 +1,14 @@
+<button class="theme-toggle" @onclick="ToggleTheme">
+    @ButtonText
+</button>
+
+@code {
+    private bool isDarkMode;
+
+    private string ButtonText => isDarkMode ? "Light Mode" : "Dark Mode";
+
+    private void ToggleTheme()
+    {
+        isDarkMode = !isDarkMode;
+    }
+}
