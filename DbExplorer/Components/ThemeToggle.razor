@@ -1,14 +1,15 @@
-<button class="theme-toggle" @onclick="ToggleTheme">
+@using DbExplorer.Services
+@inject ThemeState ThemeState
+
+<button class="theme-toggle" type="button" @onclick="ToggleTheme">
     @ButtonText
 </button>
 
 @code {
-    private bool isDarkMode;
-
-    private string ButtonText => isDarkMode ? "Light Mode" : "Dark Mode";
+    private string ButtonText => ThemeState.IsDarkMode ? "Light Mode" : "Dark Mode";
 
     private void ToggleTheme()
     {
-        isDarkMode = !isDarkMode;
+        ThemeState.Toggle();
     }
 }

@@ -1,17 +1,16 @@
 using Dapper;
 using DbExplorer.Core.Interfaces;
 using DbExplorer.Core.Models;
-using DbExplorer.Core.Validation;
-using Microsoft.Data.SqlClient;
 
 namespace DbExplorer.Services;
 
 /// <summary>
 /// Queries paged data from tables and views.
-/// Identifiers are bracket-quoted after catalog validation; user values never enter SQL text.
+/// Identifiers are dialect-quoted after catalog validation; user values never enter SQL text.
 /// </summary>
 public sealed class DataBrowsingService(
-    SqlConnectionFactory factory,
+    IDbConnectionFactory factory,
+    SqlDialect dialect,
     IIdentifierValidator validator,
     ILogger<DataBrowsingService> logger) : IDataBrowsingService
 {
@@ -26,8 +25,8 @@ public sealed class DataBrowsingService(
         CancellationToken ct = default)
     {
         // 1. Validate format first (cheap)
-        SqlIdentifierHelper.ThrowIfInvalidFormat(schemaName, nameof(schemaName));
-        SqlIdentifierHelper.ThrowIfInvalidFormat(objectName, nameof(objectName));
+        dialect.ThrowIfInvalidIdentifier(schemaName, nameof(schemaName));
+        dialect.ThrowIfInvalidIdentifier(objectName, nameof(objectName));
 
         // 2. Validate against live catalog
         await validator.ValidateObjectAsync(schemaName, objectName, ct);
@@ -37,29 +36,42 @@ public sealed class DataBrowsingService(
         var pageNumber = Math.Max(1, paging.PageNumber);
         var offset = (pageNumber - 1) * pageSize;
 
-        // 4. Bracket-quote validated identifiers
-        var quotedSchema = SqlIdentifierHelper.Quote(schemaName);
-        var quotedObject = SqlIdentifierHelper.Quote(objectName);
-        var fullName = $"{quotedSchema}.{quotedObject}";
+        // 4. Quote validated identifiers for active dialect
+        var fullName = dialect.QuoteQualifiedName(schemaName, objectName);
 
         await using var conn = factory.Create();
         await conn.OpenAsync(ct);
 
         // Count
+        var countSql = factory.Provider switch
+        {
+            DatabaseProvider.SqlServer => $"SELECT COUNT_BIG(*) FROM {fullName}",
+            DatabaseProvider.PostgreSql or DatabaseProvider.MySql => $"SELECT COUNT(*) FROM {fullName}",
+            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+        };
+
         var totalCount = await conn.ExecuteScalarAsync<int>(
             new CommandDefinition(
-                $"SELECT COUNT_BIG(*) FROM {fullName}",
+                countSql,
                 commandTimeout: QueryTimeoutSeconds,
                 cancellationToken: ct));
 
-        // Data — OFFSET/FETCH requires ORDER BY; use (SELECT NULL) for unordered
-        var dataSql = $"""
-            SELECT *
-            FROM {fullName}
-            ORDER BY (SELECT NULL)
-            OFFSET @offset ROWS
-            FETCH NEXT @pageSize ROWS ONLY
-            """;
+        var dataSql = factory.Provider switch
+        {
+            DatabaseProvider.SqlServer => $"""
+                SELECT *
+                FROM {fullName}
+                ORDER BY (SELECT NULL)
+                OFFSET @offset ROWS
+                FETCH NEXT @pageSize ROWS ONLY
+                """,
+            DatabaseProvider.PostgreSql or DatabaseProvider.MySql => $"""
+                SELECT *
+                FROM {fullName}
+                LIMIT @pageSize OFFSET @offset
+                """,
+            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+        };
 
         var rawRows = await conn.QueryAsync(
             new CommandDefinition(dataSql,

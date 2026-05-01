@@ -24,7 +24,7 @@
         foreach (var schema in schemas)
         {
             <div class="schema-node">
-                <button class="schema-toggle" @onclick="() => ToggleSchema(schema.SchemaName)">
+                <button class="schema-toggle" type="button" @onclick="() => ToggleSchema(schema.SchemaName)">
                     @(expandedSchemas.Contains(schema.SchemaName) ? "▾" : "▸") @schema.SchemaName
                 </button>
 
@@ -38,7 +38,7 @@
                                 string.IsNullOrWhiteSpace(searchTerm) ||
                                 o.ObjectName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)))
                             {
-                                <button class="object-node @(selectedObject == obj ? "selected" : "")"
+                                <button class="object-node @(selectedObject == obj ? "selected" : "")" type="button"
                                         @onclick="() => SelectObject(obj)">
                                     @obj.ObjectName
                                 </button>

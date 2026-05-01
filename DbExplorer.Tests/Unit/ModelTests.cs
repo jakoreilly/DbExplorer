@@ -28,7 +28,7 @@ public class ModelTests
     public void PagedResult_TotalCountMatchesInput()
     {
         var items = new List<DataRow>();
-        var result = new PagedResult<DataRow>(items, pageNumber: 1, pageSize: 50, totalCount: 200);
+        var result = new PagedResult<DataRow>(items, PageNumber: 1, PageSize: 50, TotalCount: 200);
 
         result.TotalCount.Should().Be(200);
         result.PageNumber.Should().Be(1);

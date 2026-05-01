@@ -28,7 +28,8 @@ public sealed class DbExplorerWebFactory : WebApplicationFactory<Program>
             Remove<IMetadataService>(services);
             Remove<IDataBrowsingService>(services);
             Remove<IIdentifierValidator>(services);
-            Remove<SqlConnectionFactory>(services);
+            Remove<IDbConnectionFactory>(services);
+            Remove<SqlDialect>(services);
 
             services.AddSingleton(MetadataMock.Object);
             services.AddSingleton(DataMock.Object);

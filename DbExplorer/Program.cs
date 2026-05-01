@@ -55,10 +55,14 @@ builder.Services.AddRateLimiter(options =>
 });
 
 // Application services
-var connectionString = builder.Configuration.GetConnectionString("SqlServer")
-    ?? throw new InvalidOperationException("Connection string 'SqlServer' is required.");
-
-builder.Services.AddSingleton(new SqlConnectionFactory(connectionString));
+builder.Services.AddScoped<ThemeState>();
+builder.Services.AddScoped<DatabaseSelectorState>();
+builder.Services.AddScoped<IDbConnectionFactory>(sp =>
+    new DbConnectionFactory(
+        sp.GetRequiredService<DatabaseSelectorState>(),
+        sp.GetRequiredService<IConfiguration>()));
+builder.Services.AddScoped(sp =>
+    new SqlDialect(sp.GetRequiredService<IDbConnectionFactory>()));
 builder.Services.AddScoped<IIdentifierValidator, IdentifierValidatorService>();
 builder.Services.AddScoped<IMetadataService, MetadataService>();
 builder.Services.AddScoped<IDataBrowsingService, DataBrowsingService>();
@@ -94,7 +98,11 @@ app.MapRazorComponents<DbExplorer.Components.App>()
 // Auth pages don't require login
 // GET /login is handled by the Blazor Login.razor page (with <AntiforgeryToken />)
 app.MapPost("/api/login", LoginHandler.Handle).AllowAnonymous();
-app.MapPost("/logout", LogoutHandler.Handle); 
+app.MapPost("/logout", LogoutHandler.Handle);
+
+// Generate a PBKDF2 hash for a password:
+//var hash = BCryptHelper.Hash("YourPassword");
+//Console.WriteLine(hash);
 app.Run();
 
 

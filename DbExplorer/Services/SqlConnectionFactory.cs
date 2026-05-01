@@ -1,15 +1,252 @@
-using Microsoft.Data.SqlClient;
+using MySqlConnector;
+using Npgsql;
+using System.Data.Common;
+using System.Text.RegularExpressions;
 
 namespace DbExplorer.Services;
 
 /// <summary>
-/// Creates SqlConnection instances from the configured connection string.
-/// The connection string must not include any user-supplied values.
+/// Supported database providers.
 /// </summary>
-public sealed class SqlConnectionFactory(string connectionString)
+public enum DatabaseProvider
 {
-    private readonly string _connectionString = connectionString
-        ?? throw new ArgumentNullException(nameof(connectionString));
+    SqlServer,
+    PostgreSql,
+    MySql
+}
 
-    public SqlConnection Create() => new(_connectionString);
+public interface IDbConnectionFactory
+{
+    DatabaseProvider Provider { get; }
+    DbConnection Create();
+}
+
+public sealed record DatabaseConnectionOption(
+    string Name,
+    DatabaseProvider Provider,
+    string ConnectionStringName);
+
+/// <summary>
+/// Holds the active database target selected by the user.
+/// Targets are loaded from configuration and validated against known providers.
+/// </summary>
+public sealed class DatabaseSelectorState
+{
+    private readonly object _sync = new();
+    private string _selectedName;
+
+    public DatabaseSelectorState(IConfiguration configuration)
+    {
+        var configuredOptions = LoadConfiguredOptions(configuration).ToList();
+
+        if (configuredOptions.Count == 0)
+        {
+            configuredOptions =
+            [
+                new DatabaseConnectionOption("SQL Server", DatabaseProvider.SqlServer, "SqlServer"),
+                new DatabaseConnectionOption("PostgreSQL", DatabaseProvider.PostgreSql, "PostgreSql"),
+                new DatabaseConnectionOption("MySQL", DatabaseProvider.MySql, "MySql")
+            ];
+        }
+
+        Options = configuredOptions;
+
+        var configuredDefault = configuration["DbExplorer:Database:Selected"];
+        if (!string.IsNullOrWhiteSpace(configuredDefault) &&
+            Options.Any(o => string.Equals(o.Name, configuredDefault, StringComparison.OrdinalIgnoreCase)))
+        {
+            _selectedName = configuredDefault;
+            return;
+        }
+
+        // Backward-compatible defaulting: honor existing DbExplorer:Database settings if present.
+        var legacyProviderText = configuration["DbExplorer:Database:Provider"];
+        var legacyConnectionName = configuration["DbExplorer:Database:ConnectionStringName"];
+        if (Enum.TryParse<DatabaseProvider>(legacyProviderText, ignoreCase: true, out var legacyProvider))
+        {
+            var legacyMatch = Options.FirstOrDefault(o =>
+                o.Provider == legacyProvider &&
+                (string.IsNullOrWhiteSpace(legacyConnectionName) ||
+                 string.Equals(o.ConnectionStringName, legacyConnectionName, StringComparison.OrdinalIgnoreCase)));
+
+            if (legacyMatch is not null)
+            {
+                _selectedName = legacyMatch.Name;
+                return;
+            }
+        }
+
+        _selectedName = Options[0].Name;
+    }
+
+    public IReadOnlyList<DatabaseConnectionOption> Options { get; }
+
+    public DatabaseConnectionOption Current
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return Options.First(o => string.Equals(o.Name, _selectedName, StringComparison.OrdinalIgnoreCase));
+            }
+        }
+    }
+
+    public bool TrySetCurrent(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        lock (_sync)
+        {
+            var match = Options.FirstOrDefault(o => string.Equals(o.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (match is null)
+                return false;
+
+            _selectedName = match.Name;
+            return true;
+        }
+    }
+
+    private static IEnumerable<DatabaseConnectionOption> LoadConfiguredOptions(IConfiguration configuration)
+    {
+        var defaultProviderText = configuration["DbExplorer:Database:Provider"] ?? "SqlServer";
+        _ = Enum.TryParse<DatabaseProvider>(defaultProviderText, ignoreCase: true, out var defaultProvider);
+
+        var entries = configuration.GetSection("DbExplorer:Databases").GetChildren();
+        foreach (var entry in entries)
+        {
+            var name = entry["Name"];
+            var providerText = entry["Provider"];
+            var connName = entry["ConnectionStringName"];
+
+            if (string.IsNullOrWhiteSpace(name) ||
+                string.IsNullOrWhiteSpace(connName))
+            {
+                continue;
+            }
+
+            var provider = defaultProvider;
+            if (!string.IsNullOrWhiteSpace(providerText))
+            {
+                if (!Enum.TryParse<DatabaseProvider>(providerText, ignoreCase: true, out provider))
+                {
+                    continue;
+                }
+            }
+
+            yield return new DatabaseConnectionOption(name, provider, connName);
+        }
+    }
+}
+
+/// <summary>
+/// Creates provider-specific DbConnection instances.
+/// The configured connection string must be trusted application configuration.
+/// </summary>
+public sealed class DbConnectionFactory : IDbConnectionFactory
+{
+    private readonly DatabaseProvider _staticProvider;
+    private readonly string? _staticConnectionString;
+    private readonly DatabaseSelectorState? _selectorState;
+    private readonly IConfiguration? _configuration;
+
+    public DbConnectionFactory(DatabaseProvider provider, string connectionString)
+    {
+        _staticProvider = provider;
+        _staticConnectionString = connectionString
+            ?? throw new ArgumentNullException(nameof(connectionString));
+    }
+
+    public DbConnectionFactory(DatabaseSelectorState selectorState, IConfiguration configuration)
+    {
+        _selectorState = selectorState ?? throw new ArgumentNullException(nameof(selectorState));
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+    }
+
+    public DatabaseProvider Provider => _selectorState?.Current.Provider ?? _staticProvider;
+
+    public DbConnection Create()
+    {
+        var provider = Provider;
+        var connectionString = _selectorState is null
+            ? _staticConnectionString!
+            : _configuration!.GetConnectionString(_selectorState.Current.ConnectionStringName)
+              ?? throw new InvalidOperationException(
+                  $"Connection string '{_selectorState.Current.ConnectionStringName}' is required for '{_selectorState.Current.Name}'.");
+
+        return provider switch
+        {
+            DatabaseProvider.SqlServer => new Microsoft.Data.SqlClient.SqlConnection(connectionString),
+            DatabaseProvider.PostgreSql => new NpgsqlConnection(connectionString),
+            DatabaseProvider.MySql => new MySqlConnection(connectionString),
+            _ => throw new InvalidOperationException($"Unsupported provider '{provider}'.")
+        };
+    }
+}
+
+/// <summary>
+/// Validates and quotes identifiers using a strict, cross-database-safe subset.
+/// </summary>
+public sealed class SqlDialect
+{
+    private static readonly Regex ValidIdentifierPattern = new(
+        @"^[A-Za-z_][A-Za-z0-9_]*$",
+        RegexOptions.Compiled,
+        TimeSpan.FromMilliseconds(100));
+
+    private readonly Func<DatabaseProvider> _providerAccessor;
+
+    public SqlDialect(DatabaseProvider provider)
+    {
+        _providerAccessor = () => provider;
+    }
+
+    public SqlDialect(IDbConnectionFactory connectionFactory)
+    {
+        _providerAccessor = () => connectionFactory.Provider;
+    }
+
+    public DatabaseProvider Provider => _providerAccessor();
+
+    public void ThrowIfInvalidIdentifier(string identifier, string paramName)
+    {
+        if (string.IsNullOrWhiteSpace(identifier))
+            throw new ArgumentException("Identifier must not be empty.", paramName);
+
+        var maxLength = Provider switch
+        {
+            DatabaseProvider.SqlServer => 128,
+            DatabaseProvider.PostgreSql => 63,
+            DatabaseProvider.MySql => 64,
+            _ => 64
+        };
+
+        if (identifier.Length > maxLength || !ValidIdentifierPattern.IsMatch(identifier))
+        {
+            throw new ArgumentException(
+                $"'{identifier}' is not a valid identifier for provider '{Provider}'.",
+                paramName);
+        }
+    }
+
+    public string QuoteIdentifier(string identifier)
+    {
+        ThrowIfInvalidIdentifier(identifier, nameof(identifier));
+
+        return Provider switch
+        {
+            DatabaseProvider.SqlServer => "[" + identifier.Replace("]", "]]", StringComparison.Ordinal) + "]",
+            DatabaseProvider.PostgreSql => "\"" + identifier.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"",
+            DatabaseProvider.MySql => "`" + identifier.Replace("`", "``", StringComparison.Ordinal) + "`",
+            _ => throw new InvalidOperationException($"Unsupported provider '{Provider}'.")
+        };
+    }
+
+    public string QuoteQualifiedName(string schemaName, string objectName)
+    {
+        ThrowIfInvalidIdentifier(schemaName, nameof(schemaName));
+        ThrowIfInvalidIdentifier(objectName, nameof(objectName));
+        return $"{QuoteIdentifier(schemaName)}.{QuoteIdentifier(objectName)}";
+    }
 }

@@ -1,0 +1,26 @@
+@using DbExplorer.Services
+@inject DatabaseSelectorState SelectorState
+@inject NavigationManager Nav
+
+<select class="database-selector" value="@CurrentName" @onchange="OnSelectionChanged" aria-label="Select database" title="Select database connection" @key="CurrentName">
+    @foreach (var option in SelectorState.Options)
+    {
+        <option value="@option.Name">@option.Name</option>
+    }
+</select>
+
+@code {
+    private string CurrentName => SelectorState.Current.Name;
+
+    private void OnSelectionChanged(ChangeEventArgs args)
+    {
+        var selected = args.Value?.ToString();
+        if (selected is null)
+            return;
+
+        if (SelectorState.TrySetCurrent(selected))
+        {
+            Nav.NavigateTo(Nav.Uri, forceLoad: true);
+        }
+    }
+}

@@ -11,17 +11,23 @@ namespace DbExplorer.Tests.Unit;
 public class DataBrowsingServiceTests
 {
     private static DataBrowsingService CreateService(
-        SqlConnectionFactory factory,
+        IDbConnectionFactory factory,
         IIdentifierValidator? validator = null)
     {
         var v = validator ?? Mock.Of<IIdentifierValidator>();
-        return new DataBrowsingService(factory, v, NullLogger<DataBrowsingService>.Instance);
+        return new DataBrowsingService(
+            factory,
+            new SqlDialect(DatabaseProvider.SqlServer),
+            v,
+            NullLogger<DataBrowsingService>.Instance);
     }
 
     [Fact]
     public async Task GetPagedDataAsync_InvalidSchemaFormat_ThrowsArgumentException()
     {
-        var factory = new SqlConnectionFactory("Server=.;Database=test;Trusted_Connection=True;");
+        var factory = new DbConnectionFactory(
+            DatabaseProvider.SqlServer,
+            "Server=.;Database=test;Trusted_Connection=True;");
         var svc = CreateService(factory);
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
@@ -31,7 +37,9 @@ public class DataBrowsingServiceTests
     [Fact]
     public async Task GetPagedDataAsync_InvalidObjectFormat_ThrowsArgumentException()
     {
-        var factory = new SqlConnectionFactory("Server=.;Database=test;Trusted_Connection=True;");
+        var factory = new DbConnectionFactory(
+            DatabaseProvider.SqlServer,
+            "Server=.;Database=test;Trusted_Connection=True;");
         var svc = CreateService(factory);
 
         await Assert.ThrowsAsync<ArgumentException>(() =>
@@ -41,7 +49,9 @@ public class DataBrowsingServiceTests
     [Fact]
     public async Task GetPagedDataAsync_ObjectNotInCatalog_ThrowsInvalidOperationException()
     {
-        var factory = new SqlConnectionFactory("Server=.;Database=test;Trusted_Connection=True;");
+        var factory = new DbConnectionFactory(
+            DatabaseProvider.SqlServer,
+            "Server=.;Database=test;Trusted_Connection=True;");
         var validatorMock = new Mock<IIdentifierValidator>();
         validatorMock
             .Setup(v => v.ValidateObjectAsync("dbo", "NonExistent", It.IsAny<CancellationToken>()))

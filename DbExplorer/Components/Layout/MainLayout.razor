@@ -1,6 +1,9 @@
 @inherits LayoutComponentBase
+@using DbExplorer.Services
+@inject ThemeState ThemeState
+@implements IDisposable
 
-<div class="layout">
+<div class="layout @(ThemeState.IsDarkMode ? "theme-dark" : "theme-light")">
     <nav class="sidebar">
         <div class="sidebar-header">
             <h1>DbExplorer</h1>
@@ -10,7 +13,7 @@
     <main class="main-content">
         <div class="top-bar">
             <ThemeToggle />
-            <form method="post" action="/logout" class="logout-form">
+            <form method="post" action="/logout" class="logout-form" @formname="logout-form">
                 <AntiforgeryToken />
                 <button type="submit">Sign Out</button>
             </form>
@@ -20,3 +23,20 @@
         </article>
     </main>
 </div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        ThemeState.OnChange += HandleThemeChanged;
+    }
+
+    private void HandleThemeChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ThemeState.OnChange -= HandleThemeChanged;
+    }
+}

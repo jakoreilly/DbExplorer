@@ -11,7 +11,7 @@
         <p class="error">Invalid username or password.</p>
     }
 
-    <form method="post" action="/login">
+    <form method="post" action="/api/login" @formname="login-form">
         <AntiforgeryToken />
         <div class="form-group">
             <label for="username">Username</label>
