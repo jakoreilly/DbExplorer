@@ -1,5 +1,6 @@
 using DbExplorer.Core.Interfaces;
 using DbExplorer.Core.Models;
+using DbExplorer.Options;
 using DbExplorer.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.RateLimiting;
@@ -57,6 +58,7 @@ builder.Services.AddRateLimiter(options =>
 // Application services
 builder.Services.AddScoped<ThemeState>();
 builder.Services.AddScoped<DatabaseSelectorState>();
+builder.Services.Configure<DataBrowsingOptions>(builder.Configuration.GetSection("DataBrowsing"));
 builder.Services.AddScoped<IDbConnectionFactory>(sp =>
     new DbConnectionFactory(
         sp.GetRequiredService<DatabaseSelectorState>(),
@@ -98,7 +100,7 @@ app.MapRazorComponents<DbExplorer.Components.App>()
 // Auth pages don't require login
 // GET /login is handled by the Blazor Login.razor page (with <AntiforgeryToken />)
 app.MapPost("/api/login", LoginHandler.Handle).AllowAnonymous();
-app.MapPost("/logout", LogoutHandler.Handle);
+app.MapMethods("/logout", ["GET", "POST"], (Delegate)LogoutHandler.Handle).AllowAnonymous();
 
 // Generate a PBKDF2 hash for a password:
 //var hash = BCryptHelper.Hash("YourPassword");

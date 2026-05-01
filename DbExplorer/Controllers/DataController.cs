@@ -1,7 +1,9 @@
 using DbExplorer.Core.Interfaces;
 using DbExplorer.Core.Models;
+using DbExplorer.Options;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using System.Text;
 
 namespace DbExplorer.Controllers;
@@ -12,6 +14,7 @@ namespace DbExplorer.Controllers;
 [Produces("application/json")]
 public sealed class DataController(
     IDataBrowsingService dataBrowsing,
+    IOptions<DataBrowsingOptions> options,
     ILogger<DataController> logger) : ControllerBase
 {
     [HttpGet("page")]
@@ -23,6 +26,7 @@ public sealed class DataController(
         [FromQuery] string objectName,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
+        [FromQuery] int sortDir = (int)SortDirection.Descending,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(schema) || string.IsNullOrWhiteSpace(objectName))
@@ -30,9 +34,18 @@ public sealed class DataController(
 
         try
         {
+            var direction = sortDir == (int)SortDirection.Ascending
+                ? SortDirection.Ascending
+                : SortDirection.Descending;
+
             var result = await dataBrowsing.GetPagedDataAsync(
                 schema, objectName,
-                new PagingOptions { PageNumber = page, PageSize = pageSize },
+                new PagingOptions
+                {
+                    PageNumber = page,
+                    PageSize = pageSize,
+                    OrderByPrimaryKey = direction
+                },
                 ct);
 
             return Ok(result);
@@ -48,7 +61,9 @@ public sealed class DataController(
     }
 
     /// <summary>
-    /// Exports the current page as CSV. Only exports the same capped page — not the full table.
+    /// Exports data as CSV.
+    /// scope=page exports only the requested page.
+    /// scope=all exports up to configured MaxExportRows.
     /// </summary>
     [HttpGet("export-csv")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -56,8 +71,10 @@ public sealed class DataController(
     public async Task<IActionResult> ExportCsv(
         [FromQuery] string schema,
         [FromQuery] string objectName,
+        [FromQuery] string scope = "page",
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 500,
+        [FromQuery] int sortDir = (int)SortDirection.Descending,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(schema) || string.IsNullOrWhiteSpace(objectName))
@@ -65,13 +82,37 @@ public sealed class DataController(
 
         try
         {
+            var direction = sortDir == (int)SortDirection.Ascending
+                ? SortDirection.Ascending
+                : SortDirection.Descending;
+
+            var normalizedScope = scope?.Trim().ToLowerInvariant();
+            if (normalizedScope is not "page" and not "all")
+                return Problem("scope must be either 'page' or 'all'.", statusCode: 400);
+
+            var paging = normalizedScope == "all"
+                ? new PagingOptions
+                {
+                    PageNumber = 1,
+                    PageSize = options.Value.MaxExportRows,
+                    OrderByPrimaryKey = direction
+                }
+                : new PagingOptions
+                {
+                    PageNumber = page,
+                    PageSize = pageSize,
+                    OrderByPrimaryKey = direction
+                };
+
             var result = await dataBrowsing.GetPagedDataAsync(
                 schema, objectName,
-                new PagingOptions { PageNumber = page, PageSize = pageSize },
+                paging,
                 ct);
 
             var csv = BuildCsv(result.Items);
-            var fileName = $"{schema}_{objectName}_page{page}.csv";
+            var fileName = normalizedScope == "all"
+                ? $"{schema}_{objectName}_all.csv"
+                : $"{schema}_{objectName}_page{page}.csv";
             return File(Encoding.UTF8.GetBytes(csv), "text/csv", fileName);
         }
         catch (ArgumentException ex)

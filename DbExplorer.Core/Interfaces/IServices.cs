@@ -22,6 +22,8 @@ public interface IIdentifierValidator
 
 public interface IMetadataService
 {
+    Task<string> GetCurrentCatalogAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<CatalogInfo>> GetCatalogsAsync(CancellationToken ct = default);
     Task<IReadOnlyList<SchemaInfo>> GetSchemasAsync(CancellationToken ct = default);
     Task<IReadOnlyList<DatabaseObjectInfo>> GetObjectsAsync(string? schemaName = null, CancellationToken ct = default);
     Task<IReadOnlyList<ColumnInfo>> GetColumnsAsync(string schemaName, string objectName, CancellationToken ct = default);

@@ -15,7 +15,14 @@
             <option value="250">250</option>
             <option value="500">500</option>
         </select>
-        <a class="csv-link" href="@CsvUrl" target="_blank">Export CSV</a>
+        <button @onclick="ToggleSortDirection" title="@SortLabel">@SortLabel</button>
+        <span class="csv-export-group">
+            <select @bind="exportScope" class="csv-scope-select" title="Choose CSV export scope">
+                <option value="page">This page</option>
+                <option value="all">All rows</option>
+            </select>
+            <a class="csv-link" href="@CsvUrl" target="_blank" rel="noopener noreferrer">Export CSV</a>
+        </span>
     </div>
 
     @if (isLoading)
@@ -65,17 +72,31 @@
     private int pageNumber = 1;
     private int pageSize = 50;
     private int totalCount;
+    private SortDirection sortDirection = SortDirection.Descending;
+    private string exportScope = "page";
     private IReadOnlyList<DataRow>? rows;
     private List<string> columns = [];
     private bool isLoading = true;
     private string? error;
 
     private int TotalPages => pageSize > 0 ? (int)Math.Ceiling((double)totalCount / pageSize) : 1;
-    private string CsvUrl => $"/api/data/export-csv?schema={Uri.EscapeDataString(SchemaName)}&objectName={Uri.EscapeDataString(ObjectName)}&page={pageNumber}&pageSize={pageSize}";
+    private string SortLabel => sortDirection == SortDirection.Descending ? "PK ↓" : "PK ↑";
+    private string CsvUrl
+    {
+        get
+        {
+            var url = $"/api/data/export-csv?schema={Uri.EscapeDataString(SchemaName)}&objectName={Uri.EscapeDataString(ObjectName)}&scope={Uri.EscapeDataString(exportScope)}&sortDir={(int)sortDirection}";
+            if (exportScope == "page")
+                url += $"&page={pageNumber}&pageSize={pageSize}";
+            return url;
+        }
+    }
 
     protected override async Task OnParametersSetAsync()
     {
         pageNumber = 1;
+        sortDirection = SortDirection.Descending;
+        exportScope = "page";
         await LoadData();
     }
 
@@ -87,7 +108,12 @@
         {
             var result = await DataService.GetPagedDataAsync(
                 SchemaName, ObjectName,
-                new PagingOptions { PageNumber = pageNumber, PageSize = pageSize });
+                new PagingOptions
+                {
+                    PageNumber = pageNumber,
+                    PageSize = pageSize,
+                    OrderByPrimaryKey = sortDirection
+                });
 
             rows = result.Items;
             totalCount = result.TotalCount;
@@ -113,5 +139,14 @@
     private async Task NextPage()
     {
         if (pageNumber < TotalPages) { pageNumber++; await LoadData(); }
+    }
+
+    private async Task ToggleSortDirection()
+    {
+        sortDirection = sortDirection == SortDirection.Descending
+            ? SortDirection.Ascending
+            : SortDirection.Descending;
+        pageNumber = 1;
+        await LoadData();
     }
 }

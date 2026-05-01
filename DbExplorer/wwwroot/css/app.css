@@ -138,6 +138,9 @@ tr:hover td { background: var(--row-hover); }
 .grid-scroll { overflow-x: auto; }
 .data-table td { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .csv-link { padding: 0.3rem 0.75rem; background: var(--success-bg); color: white; border-radius: 4px; text-decoration: none; font-size: 0.85rem; }
+.csv-export-group { display: inline-flex; align-items: center; }
+.csv-scope-select { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.csv-export-group .csv-link { border-top-left-radius: 0; border-bottom-left-radius: 0; }
 
 /* Definition */
 .definition-header { color: var(--muted); margin-bottom: 0.6rem; }

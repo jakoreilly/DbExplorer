@@ -3,10 +3,23 @@
 @using Microsoft.AspNetCore.Components.Web
 @using static Microsoft.AspNetCore.Components.Web.RenderMode
 @inject IMetadataService MetadataService
+@inject DatabaseSelectorState SelectorState
 @inject NavigationManager Nav
 @rendermode InteractiveServer
 
 <div class="object-tree">
+    @if (catalogs is not null && catalogs.Count > 1)
+    {
+        <div class="search-box">
+            <select class="database-selector" value="@currentCatalog" @onchange="OnCatalogChanged" aria-label="Select catalog">
+                @foreach (var catalog in catalogs)
+                {
+                    <option value="@catalog.CatalogName">@catalog.CatalogName</option>
+                }
+            </select>
+        </div>
+    }
+
     <div class="search-box">
         <input @bind="searchTerm" @bind:event="oninput" placeholder="Filter objects…" />
     </div>
@@ -56,6 +69,8 @@
     private Dictionary<string, IReadOnlyList<DatabaseObjectInfo>> objectsBySchema = new();
     private HashSet<string> expandedSchemas = new();
     private DatabaseObjectInfo? selectedObject;
+    private IReadOnlyList<CatalogInfo>? catalogs;
+    private string? currentCatalog;
     private string searchTerm = "";
     private bool isLoading = true;
     private string? loadError;
@@ -66,11 +81,79 @@
     {
         try
         {
-            schemas = await MetadataService.GetSchemasAsync();
+            await LoadCatalogsAsync();
+            await ReloadSchemasAsync();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to load schemas in ObjectTree");
+            loadError = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task LoadCatalogsAsync()
+    {
+        var detected = await MetadataService.GetCurrentCatalogAsync();
+
+        try
+        {
+            catalogs = await MetadataService.GetCatalogsAsync();
+        }
+        catch (Exception ex)
+        {
+            // If catalog enumeration is restricted, keep the UI usable with the current catalog only.
+            Logger.LogWarning(ex, "Catalog enumeration is unavailable for the current connection.");
+            catalogs = [new CatalogInfo(detected)];
+        }
+
+        var preferred = SelectorState.SelectedCatalog;
+
+        if (!string.IsNullOrWhiteSpace(preferred) &&
+            catalogs.Any(c => string.Equals(c.CatalogName, preferred, StringComparison.OrdinalIgnoreCase)))
+        {
+            currentCatalog = preferred;
+            SelectorState.SetCatalog(currentCatalog);
+            return;
+        }
+
+        currentCatalog = catalogs.FirstOrDefault(c => string.Equals(c.CatalogName, detected, StringComparison.OrdinalIgnoreCase))?.CatalogName
+            ?? catalogs.FirstOrDefault()?.CatalogName
+            ?? detected;
+
+        SelectorState.SetCatalog(currentCatalog);
+    }
+
+    private async Task ReloadSchemasAsync()
+    {
+        schemas = await MetadataService.GetSchemasAsync();
+        objectsBySchema.Clear();
+        expandedSchemas.Clear();
+        selectedObject = null;
+    }
+
+    private async Task OnCatalogChanged(ChangeEventArgs args)
+    {
+        var selected = args.Value?.ToString();
+        if (string.IsNullOrWhiteSpace(selected) || string.Equals(selected, currentCatalog, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        isLoading = true;
+        loadError = null;
+        SelectorState.SetCatalog(selected);
+        currentCatalog = selected;
+
+        try
+        {
+            await ReloadSchemasAsync();
+            Nav.NavigateTo("/");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed switching catalog in ObjectTree");
             loadError = ex.Message;
         }
         finally

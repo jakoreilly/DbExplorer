@@ -34,6 +34,7 @@ public sealed class DatabaseSelectorState
 {
     private readonly object _sync = new();
     private string _selectedName;
+    private string? _selectedCatalog;
 
     public DatabaseSelectorState(IConfiguration configuration)
     {
@@ -104,7 +105,29 @@ public sealed class DatabaseSelectorState
                 return false;
 
             _selectedName = match.Name;
+            _selectedCatalog = null;
             return true;
+        }
+    }
+
+    public string? SelectedCatalog
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _selectedCatalog;
+            }
+        }
+    }
+
+    public void SetCatalog(string? catalogName)
+    {
+        lock (_sync)
+        {
+            _selectedCatalog = string.IsNullOrWhiteSpace(catalogName)
+                ? null
+                : catalogName.Trim();
         }
     }
 
@@ -175,13 +198,51 @@ public sealed class DbConnectionFactory : IDbConnectionFactory
               ?? throw new InvalidOperationException(
                   $"Connection string '{_selectorState.Current.ConnectionStringName}' is required for '{_selectorState.Current.Name}'.");
 
+        var selectedCatalog = _selectorState?.SelectedCatalog;
+
         return provider switch
         {
-            DatabaseProvider.SqlServer => new Microsoft.Data.SqlClient.SqlConnection(connectionString),
-            DatabaseProvider.PostgreSql => new NpgsqlConnection(connectionString),
-            DatabaseProvider.MySql => new MySqlConnection(connectionString),
+            DatabaseProvider.SqlServer => CreateSqlServerConnection(connectionString, selectedCatalog),
+            DatabaseProvider.PostgreSql => CreatePostgreSqlConnection(connectionString, selectedCatalog),
+            DatabaseProvider.MySql => CreateMySqlConnection(connectionString, selectedCatalog),
             _ => throw new InvalidOperationException($"Unsupported provider '{provider}'.")
         };
+    }
+
+    private static Microsoft.Data.SqlClient.SqlConnection CreateSqlServerConnection(string baseConnectionString, string? catalog)
+    {
+        if (string.IsNullOrWhiteSpace(catalog))
+            return new Microsoft.Data.SqlClient.SqlConnection(baseConnectionString);
+
+        var builder = new Microsoft.Data.SqlClient.SqlConnectionStringBuilder(baseConnectionString)
+        {
+            InitialCatalog = catalog
+        };
+        return new Microsoft.Data.SqlClient.SqlConnection(builder.ConnectionString);
+    }
+
+    private static NpgsqlConnection CreatePostgreSqlConnection(string baseConnectionString, string? catalog)
+    {
+        if (string.IsNullOrWhiteSpace(catalog))
+            return new NpgsqlConnection(baseConnectionString);
+
+        var builder = new NpgsqlConnectionStringBuilder(baseConnectionString)
+        {
+            Database = catalog
+        };
+        return new NpgsqlConnection(builder.ConnectionString);
+    }
+
+    private static MySqlConnection CreateMySqlConnection(string baseConnectionString, string? catalog)
+    {
+        if (string.IsNullOrWhiteSpace(catalog))
+            return new MySqlConnection(baseConnectionString);
+
+        var builder = new MySqlConnectionStringBuilder(baseConnectionString)
+        {
+            Database = catalog
+        };
+        return new MySqlConnection(builder.ConnectionString);
     }
 }
 

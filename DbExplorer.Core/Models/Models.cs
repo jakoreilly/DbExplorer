@@ -1,6 +1,14 @@
 namespace DbExplorer.Core.Models;
 
+public enum SortDirection
+{
+    Ascending = 0,
+    Descending = 1
+}
+
 public record SchemaInfo(string SchemaName);
+
+public record CatalogInfo(string CatalogName);
 
 public record DatabaseObjectInfo(
     string SchemaName,
@@ -70,4 +78,5 @@ public record PagingOptions
 {
     public int PageNumber { get; init; } = 1;
     public int PageSize { get; init; } = 50;
+    public SortDirection OrderByPrimaryKey { get; init; } = SortDirection.Descending;
 }

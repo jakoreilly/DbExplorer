@@ -15,6 +15,71 @@ public sealed class MetadataService(
 {
     private const int TimeoutSeconds = 30;
 
+    public async Task<string> GetCurrentCatalogAsync(CancellationToken ct = default)
+    {
+        await using var conn = factory.Create();
+        await conn.OpenAsync(ct);
+
+        var sql = factory.Provider switch
+        {
+            DatabaseProvider.SqlServer => "SELECT DB_NAME()",
+            DatabaseProvider.PostgreSql => "SELECT current_database()",
+            DatabaseProvider.MySql => "SELECT DATABASE()",
+            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+        };
+
+        return await conn.ExecuteScalarAsync<string>(
+            new CommandDefinition(
+                sql,
+                commandTimeout: TimeoutSeconds,
+                cancellationToken: ct)) ?? string.Empty;
+    }
+
+    public async Task<IReadOnlyList<CatalogInfo>> GetCatalogsAsync(CancellationToken ct = default)
+    {
+        await using var conn = factory.Create();
+        await conn.OpenAsync(ct);
+
+        var sql = factory.Provider switch
+        {
+            DatabaseProvider.SqlServer =>
+                """
+                SELECT name
+                FROM sys.databases
+                WHERE state_desc = 'ONLINE'
+                  AND HAS_DBACCESS(name) = 1
+                ORDER BY name
+                """,
+            DatabaseProvider.PostgreSql =>
+                """
+                SELECT datname
+                FROM pg_database
+                WHERE datallowconn = TRUE
+                  AND datistemplate = FALSE
+                ORDER BY datname
+                """,
+            DatabaseProvider.MySql =>
+                """
+                SELECT schema_name
+                FROM information_schema.schemata
+                WHERE schema_name NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+                ORDER BY schema_name
+                """,
+            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+        };
+
+        var rows = await conn.QueryAsync<string>(
+            new CommandDefinition(
+                sql,
+                commandTimeout: TimeoutSeconds,
+                cancellationToken: ct));
+
+        return rows
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => new CatalogInfo(name))
+            .ToList();
+    }
+
     public async Task<IReadOnlyList<SchemaInfo>> GetSchemasAsync(CancellationToken ct = default)
     {
         await using var conn = factory.Create();
