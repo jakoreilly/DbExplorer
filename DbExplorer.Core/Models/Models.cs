@@ -79,4 +79,10 @@ public record PagingOptions
     public int PageNumber { get; init; } = 1;
     public int PageSize { get; init; } = 50;
     public SortDirection OrderByPrimaryKey { get; init; } = SortDirection.Descending;
+    /// <summary>
+    /// When set, the grid sorts by this column instead of the primary key.
+    /// Validated and quoted by the service before use in SQL.
+    /// </summary>
+    public string? SortColumn { get; init; }
+    public SortDirection SortColumnDirection { get; init; } = SortDirection.Ascending;
 }

@@ -9,12 +9,40 @@
     <base href="/" />
     <title>DbExplorer</title>
     <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" class="hljs-theme-light" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" class="hljs-theme-dark" disabled />
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 
 <body>
     <Routes @rendermode="InteractiveServer" />
     <script src="_framework/blazor.server.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        // Recently-viewed objects persisted in localStorage (max 10 entries)
+        window.dbExplorerAddRecent = function (schema, name, type) {
+            try {
+                const key = 'dbexplorer_recent';
+                const existing = JSON.parse(localStorage.getItem(key) || '[]');
+                const filtered = existing.filter(x => !(x.schemaName === schema && x.objectName === name));
+                filtered.unshift({ schemaName: schema, objectName: name, objectType: type });
+                localStorage.setItem(key, JSON.stringify(filtered.slice(0, 10)));
+            } catch (e) { }
+        };
+        window.dbExplorerGetRecent = function () {
+            try { return JSON.parse(localStorage.getItem('dbexplorer_recent') || '[]'); }
+            catch (e) { return []; }
+        };
+        // Trigger highlight.js on a container element
+        window.hljsHighlight = function (el) {
+            if (window.hljs && el) hljs.highlightElement(el);
+        };
+        // Copy text to clipboard, returns true on success
+        window.copyToClipboard = async function (text) {
+            try { await navigator.clipboard.writeText(text); return true; }
+            catch (e) { return false; }
+        };
+    </script>
 </body>
 
 </html>

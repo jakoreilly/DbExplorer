@@ -58,7 +58,10 @@ builder.Services.AddRateLimiter(options =>
 // Application services
 builder.Services.AddScoped<ThemeState>();
 builder.Services.AddScoped<DatabaseSelectorState>();
-builder.Services.Configure<DataBrowsingOptions>(builder.Configuration.GetSection("DataBrowsing"));
+builder.Services.AddOptions<DataBrowsingOptions>()
+    .Bind(builder.Configuration.GetSection("DataBrowsing"))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 builder.Services.AddScoped<IDbConnectionFactory>(sp =>
     new DbConnectionFactory(
         sp.GetRequiredService<DatabaseSelectorState>(),
@@ -100,7 +103,8 @@ app.MapRazorComponents<DbExplorer.Components.App>()
 // Auth pages don't require login
 // GET /login is handled by the Blazor Login.razor page (with <AntiforgeryToken />)
 app.MapPost("/api/login", LoginHandler.Handle).AllowAnonymous();
-app.MapMethods("/logout", ["GET", "POST"], (Delegate)LogoutHandler.Handle).AllowAnonymous();
+// Logout is POST-only to prevent CSRF-based forced logout via GET requests (e.g. <img> tags).
+app.MapPost("/logout", (Delegate)LogoutHandler.Handle).AllowAnonymous();
 
 // Generate a PBKDF2 hash for a password:
 //var hash = BCryptHelper.Hash("YourPassword");

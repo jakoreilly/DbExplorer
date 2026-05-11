@@ -1,8 +1,10 @@
 using DbExplorer.Core.Interfaces;
 using DbExplorer.Core.Models;
+using DbExplorer.Options;
 using DbExplorer.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
@@ -19,7 +21,8 @@ public class DataBrowsingServiceTests
             factory,
             new SqlDialect(DatabaseProvider.SqlServer),
             v,
-            NullLogger<DataBrowsingService>.Instance);
+            NullLogger<DataBrowsingService>.Instance,
+            Microsoft.Extensions.Options.Options.Create(new DataBrowsingOptions()));
     }
 
     [Fact]

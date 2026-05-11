@@ -52,10 +52,12 @@ public sealed class DataController(
         }
         catch (ArgumentException ex)
         {
+            logger.LogWarning("GetPage rejected invalid identifier: {Message}", ex.Message);
             return Problem(ex.Message, statusCode: 400);
         }
         catch (InvalidOperationException ex)
         {
+            logger.LogWarning("GetPage: object not found — {Message}", ex.Message);
             return Problem(ex.Message, statusCode: 404);
         }
     }
@@ -117,10 +119,12 @@ public sealed class DataController(
         }
         catch (ArgumentException ex)
         {
+            logger.LogWarning("ExportCsv rejected invalid identifier: {Message}", ex.Message);
             return Problem(ex.Message, statusCode: 400);
         }
         catch (InvalidOperationException ex)
         {
+            logger.LogWarning("ExportCsv: object not found — {Message}", ex.Message);
             return Problem(ex.Message, statusCode: 404);
         }
     }

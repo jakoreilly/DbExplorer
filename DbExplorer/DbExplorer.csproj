@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>13</LangVersion>
     <RootNamespace>DbExplorer</RootNamespace>
+    <UserSecretsId>fe452472-1ccb-47b4-b1c7-46453c24d590</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

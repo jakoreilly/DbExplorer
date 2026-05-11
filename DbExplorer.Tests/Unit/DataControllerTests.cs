@@ -1,10 +1,12 @@
 using DbExplorer.Core.Interfaces;
 using DbExplorer.Core.Models;
 using DbExplorer.Controllers;
+using DbExplorer.Options;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
@@ -14,7 +16,10 @@ public class DataControllerTests
 {
     private static DataController CreateController(IDataBrowsingService svc)
     {
-        var controller = new DataController(svc, NullLogger<DataController>.Instance);
+        var controller = new DataController(
+            svc,
+            Microsoft.Extensions.Options.Options.Create(new DataBrowsingOptions()),
+            NullLogger<DataController>.Instance);
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext()

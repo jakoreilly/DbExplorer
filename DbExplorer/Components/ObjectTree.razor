@@ -87,7 +87,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed to load schemas in ObjectTree");
-            loadError = ex.Message;
+            loadError = "Failed to load database objects. Check connection settings.";
         }
         finally
         {
@@ -154,7 +154,7 @@
         catch (Exception ex)
         {
             Logger.LogError(ex, "Failed switching catalog in ObjectTree");
-            loadError = ex.Message;
+            loadError = "Failed to switch catalog. Please try again.";
         }
         finally
         {

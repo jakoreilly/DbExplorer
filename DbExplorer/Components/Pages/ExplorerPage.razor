@@ -6,6 +6,8 @@
 @inject IMetadataService MetadataService
 @inject IDataBrowsingService DataService
 @inject NavigationManager Nav
+@inject ILogger<ExplorerPage> Logger
+@inject IJSRuntime JS
 @rendermode InteractiveServer
 
 <PageTitle>@SchemaName.@ObjectName — DbExplorer</PageTitle>
@@ -14,12 +16,12 @@
     <h2>@SchemaName.<strong>@ObjectName</strong></h2>
 
     <div class="tabs">
-        <button class="tab @ActiveTab("columns")" @onclick='() => tab = "columns"'>Columns</button>
+        <button class="tab @ActiveTab("columns")" @onclick='() => tab = "columns"'>Columns @Badge(columns?.Count)</button>
         @if (objectType is "TABLE")
         {
-            <button class="tab @ActiveTab("indexes")" @onclick='() => tab = "indexes"'>Indexes</button>
-            <button class="tab @ActiveTab("fkeys")" @onclick='() => tab = "fkeys"'>Foreign Keys</button>
-            <button class="tab @ActiveTab("triggers")" @onclick='() => tab = "triggers"'>Triggers</button>
+            <button class="tab @ActiveTab("indexes")" @onclick='() => tab = "indexes"'>Indexes @Badge(indexes?.Count)</button>
+            <button class="tab @ActiveTab("fkeys")" @onclick='() => tab = "fkeys"'>Foreign Keys @Badge(foreignKeys?.Count)</button>
+            <button class="tab @ActiveTab("triggers")" @onclick='() => tab = "triggers"'>Triggers @Badge(triggers?.Count)</button>
         }
         @if (objectType is "VIEW" or "PROCEDURE" or "SCALAR_FUNCTION" or "TABLE_FUNCTION")
         {
@@ -115,13 +117,25 @@
         }
         catch (Exception ex)
         {
-            error = ex.Message;
+            Logger.LogError(ex, "Error loading metadata for {Schema}.{Object}", SchemaName, ObjectName);
+            error = "Failed to load object metadata. Please try again.";
         }
         finally
         {
             isLoading = false;
         }
+
+        // Record this object in the recently viewed list stored in localStorage
+        if (error is null && objectType is not null)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("dbExplorerAddRecent", SchemaName, ObjectName, objectType);
+            }
+            catch { /* Non-critical; JS may not be available during pre-render */ }
+        }
     }
 
     private string ActiveTab(string name) => tab == name ? "active" : "";
+    private static string Badge(int? count) => count is > 0 ? $"({count})" : "";
 }

@@ -47,6 +47,7 @@ public sealed class MetadataController(
         }
         catch (ArgumentException ex)
         {
+            logger.LogWarning("GetColumns rejected invalid identifier: {Message}", ex.Message);
             return Problem(ex.Message, statusCode: 400);
         }
     }
@@ -69,6 +70,7 @@ public sealed class MetadataController(
         }
         catch (ArgumentException ex)
         {
+            logger.LogWarning("GetIndexes rejected invalid identifier: {Message}", ex.Message);
             return Problem(ex.Message, statusCode: 400);
         }
     }
@@ -91,6 +93,7 @@ public sealed class MetadataController(
         }
         catch (ArgumentException ex)
         {
+            logger.LogWarning("GetForeignKeys rejected invalid identifier: {Message}", ex.Message);
             return Problem(ex.Message, statusCode: 400);
         }
     }
@@ -116,6 +119,7 @@ public sealed class MetadataController(
         }
         catch (ArgumentException ex)
         {
+            logger.LogWarning("GetDefinition rejected invalid identifier: {Message}", ex.Message);
             return Problem(ex.Message, statusCode: 400);
         }
     }

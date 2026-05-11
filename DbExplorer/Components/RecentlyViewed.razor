@@ -1,0 +1,55 @@
+@using System.Text.Json
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@if (_items.Count > 0)
+{
+    <div class="recent-section">
+        <span class="section-label">Recent</span>
+        @foreach (var item in _items)
+        {
+            <button class="object-node recent-item" type="button" title="@item.SchemaName.@item.ObjectName (@item.ObjectType)"
+                    @onclick="() => Navigate(item)">
+                <span class="recent-icon">@TypeIcon(item.ObjectType)</span>
+                @item.SchemaName.<strong>@item.ObjectName</strong>
+            </button>
+        }
+    </div>
+}
+
+@code {
+    private List<RecentItem> _items = [];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var raw = await JS.InvokeAsync<JsonElement[]>("dbExplorerGetRecent");
+            _items = raw
+                .Select(e => new RecentItem(
+                    e.GetProperty("schemaName").GetString() ?? "",
+                    e.GetProperty("objectName").GetString() ?? "",
+                    e.GetProperty("objectType").GetString() ?? ""))
+                .Where(x => !string.IsNullOrWhiteSpace(x.SchemaName) && !string.IsNullOrWhiteSpace(x.ObjectName))
+                .ToList();
+            StateHasChanged();
+        }
+        catch { /* JS not available during SSR pre-render */ }
+    }
+
+    private void Navigate(RecentItem item) =>
+        Nav.NavigateTo($"/explore/{Uri.EscapeDataString(item.SchemaName)}/{Uri.EscapeDataString(item.ObjectName)}");
+
+    private static string TypeIcon(string type) => type switch
+    {
+        "TABLE"           => "▦",
+        "VIEW"            => "◫",
+        "PROCEDURE"       => "λ",
+        "SCALAR_FUNCTION" => "ƒ",
+        "TABLE_FUNCTION"  => "ƒ",
+        _                 => "◈"
+    };
+
+    private record RecentItem(string SchemaName, string ObjectName, string ObjectType);
+}

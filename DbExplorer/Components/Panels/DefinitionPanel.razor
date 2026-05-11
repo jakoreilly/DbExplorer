@@ -1,4 +1,5 @@
 @using DbExplorer.Core.Models
+@inject IJSRuntime JS
 
 <div class="panel definition-panel">
     @if (Definition is null)
@@ -10,10 +11,21 @@
         <div class="definition-header">
             <span>@Definition.ObjectType: @Definition.SchemaName.@Definition.ObjectName</span>
         </div>
-        <pre class="definition-code"><code>@Definition.Definition</code></pre>
+        <pre class="definition-code"><code @ref="_codeEl" class="language-sql">@Definition.Definition</code></pre>
     }
 </div>
 
 @code {
     [Parameter] public ObjectDefinition? Definition { get; set; }
+
+    private ElementReference _codeEl;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Definition?.Definition is not null)
+        {
+            try { await JS.InvokeVoidAsync("hljsHighlight", _codeEl); }
+            catch { /* JS not available during pre-render */ }
+        }
+    }
 }

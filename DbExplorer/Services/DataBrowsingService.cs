@@ -53,33 +53,50 @@ public sealed class DataBrowsingService(
             ? string.Join(", ", pkColumns.Select(c => $"{dialect.QuoteIdentifier(c)} {direction}"))
             : null;
 
-        // Count
-        var countSql = factory.Provider switch
+        // Determine ORDER BY: explicit column takes precedence over PK sort
+        string? orderByClause;
+        if (!string.IsNullOrWhiteSpace(paging.SortColumn))
         {
-            DatabaseProvider.SqlServer => $"SELECT COUNT_BIG(*) FROM {fullName}",
-            DatabaseProvider.PostgreSql or DatabaseProvider.MySql => $"SELECT COUNT(*) FROM {fullName}",
-            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
-        };
+            dialect.ThrowIfInvalidIdentifier(paging.SortColumn, nameof(paging.SortColumn));
+            var colDir = paging.SortColumnDirection == SortDirection.Ascending ? "ASC" : "DESC";
+            orderByClause = $"{dialect.QuoteIdentifier(paging.SortColumn)} {colDir}";
+        }
+        else
+        {
+            orderByClause = orderByPk;
+        }
 
-        var totalCount = await conn.ExecuteScalarAsync<int>(
-            new CommandDefinition(
-                countSql,
-                commandTimeout: _options.QueryTimeoutSeconds,
-                cancellationToken: ct));
+        // Count (skipped when EagerRowCount = false for large tables/views)
+        int totalCount = -1;
+        if (_options.EagerRowCount)
+        {
+            var countSql = factory.Provider switch
+            {
+                DatabaseProvider.SqlServer => $"SELECT COUNT_BIG(*) FROM {fullName}",
+                DatabaseProvider.PostgreSql or DatabaseProvider.MySql => $"SELECT COUNT(*) FROM {fullName}",
+                _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+            };
+
+            totalCount = await conn.ExecuteScalarAsync<int>(
+                new CommandDefinition(
+                    countSql,
+                    commandTimeout: _options.QueryTimeoutSeconds,
+                    cancellationToken: ct));
+        }
 
         var dataSql = factory.Provider switch
         {
             DatabaseProvider.SqlServer => $"""
                 SELECT *
                 FROM {fullName}
-                ORDER BY {(orderByPk ?? "(SELECT NULL)")}
+                ORDER BY {(orderByClause ?? "(SELECT NULL)")}
                 OFFSET @offset ROWS
                 FETCH NEXT @pageSize ROWS ONLY
                 """,
             DatabaseProvider.PostgreSql or DatabaseProvider.MySql => $"""
                 SELECT *
                 FROM {fullName}
-                {(orderByPk is not null ? "ORDER BY " + orderByPk : "")}
+                {(orderByClause is not null ? "ORDER BY " + orderByClause : "")}
                 LIMIT @pageSize OFFSET @offset
                 """,
             _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")

@@ -558,7 +558,11 @@ public sealed class MetadataService(
                 commandTimeout: TimeoutSeconds,
                 cancellationToken: ct));
 
-        if (row is null) return null;
+        if (row is null)
+        {
+            logger.LogDebug("No definition found for {Schema}.{Object}", schemaName, objectName);
+            return null;
+        }
 
         return new ObjectDefinition(
             (string)row.SchemaName,

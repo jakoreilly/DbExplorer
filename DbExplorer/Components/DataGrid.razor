@@ -2,20 +2,29 @@
 @using DbExplorer.Core.Models
 @inject IDataBrowsingService DataService
 @inject NavigationManager Nav
+@inject ILogger<DataGrid> Logger
+@inject IJSRuntime JS
 
 <div class="panel data-grid-panel">
     <div class="grid-toolbar">
         <button @onclick="PrevPage" disabled="@(pageNumber <= 1)">← Prev</button>
-        <span>Page @pageNumber of @TotalPages (@totalCount rows)</span>
-        <button @onclick="NextPage" disabled="@(pageNumber >= TotalPages)">Next →</button>
-        <select @bind="pageSize" @bind:after="LoadData">
+        <span>@ToolbarPageInfo</span>
+        <button @onclick="NextPage" disabled="@(!HasNextPage)">Next →</button>
+        <select @bind="pageSize" @bind:after="ResetAndLoad">
             <option value="25">25</option>
             <option value="50">50</option>
             <option value="100">100</option>
             <option value="250">250</option>
             <option value="500">500</option>
         </select>
-        <button @onclick="ToggleSortDirection" title="@SortLabel">@SortLabel</button>
+        @if (sortColumn is null)
+        {
+            <button @onclick="TogglePkSortDirection" title="@PkSortLabel">@PkSortLabel</button>
+        }
+        else
+        {
+            <button @onclick="ClearColumnSort" title="Clear column sort (return to PK)">✕ @sortColumn @ColSortArrow(sortColumn)</button>
+        }
         <span class="csv-export-group">
             <select @bind="exportScope" class="csv-scope-select" title="Choose CSV export scope">
                 <option value="page">This page</option>
@@ -23,6 +32,10 @@
             </select>
             <a class="csv-link" href="@CsvUrl" target="_blank" rel="noopener noreferrer">Export CSV</a>
         </span>
+        @if (_copyFeedback is not null)
+        {
+            <span class="copy-toast">@_copyFeedback</span>
+        }
     </div>
 
     @if (isLoading)
@@ -31,7 +44,7 @@
     }
     else if (error is not null)
     {
-        <div class="error">@error</div>
+        <div class="error">@error <button @onclick="LoadData">Retry</button></div>
     }
     else if (rows is not null && rows.Count > 0)
     {
@@ -39,25 +52,55 @@
             <table class="data-table">
                 <thead>
                     <tr>
+                        <th class="row-detail-col"></th>
                         @foreach (var col in columns)
                         {
-                            <th>@col</th>
+                            <th class="@(sortColumn == col ? "sorted" : "")"
+                                @onclick="() => SetColumnSort(col)"
+                                title="Sort by @col">
+                                @col @ColSortArrow(col)
+                            </th>
                         }
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var row in rows)
                     {
-                        <tr>
+                        <tr class="@(selectedRowForDetail == row ? "row-selected" : "")">
+                            <td class="row-detail-col">
+                                <button class="row-detail-btn" @onclick="() => ToggleRowDetail(row)" title="View row detail">⊞</button>
+                            </td>
                             @foreach (var col in columns)
                             {
-                                <td>@(row.Fields.TryGetValue(col, out var val) ? val?.ToString() : "")</td>
+                                var val = row.Fields.TryGetValue(col, out var v) ? v?.ToString() ?? "" : "";
+                                <td @onclick="() => CopyCell(val)" title="Click to copy" class="copyable-cell">@val</td>
                             }
                         </tr>
                     }
                 </tbody>
             </table>
         </div>
+
+        @if (selectedRowForDetail is not null)
+        {
+            <div class="row-detail-panel">
+                <div class="row-detail-header">
+                    <strong>Row Detail</strong>
+                    <button @onclick="() => selectedRowForDetail = null" title="Close">✕</button>
+                </div>
+                <table class="row-detail-table">
+                    @foreach (var field in selectedRowForDetail.Fields)
+                    {
+                        <tr>
+                            <td class="field-name">@field.Key</td>
+                            <td class="field-value" @onclick="() => CopyCell(field.Value?.ToString() ?? string.Empty)" title="Click to copy">
+                                @(field.Value?.ToString() ?? "(null)")
+                            </td>
+                        </tr>
+                    }
+                </table>
+            </div>
+        }
     }
     else
     {
@@ -71,21 +114,40 @@
 
     private int pageNumber = 1;
     private int pageSize = 50;
-    private int totalCount;
-    private SortDirection sortDirection = SortDirection.Descending;
+    private int totalCount = -1;   // -1 = unknown (EagerRowCount = false)
+    private SortDirection pkSortDirection = SortDirection.Descending;
+    private string? sortColumn;
+    private SortDirection sortColumnDir = SortDirection.Ascending;
     private string exportScope = "page";
     private IReadOnlyList<DataRow>? rows;
     private List<string> columns = [];
+    private DataRow? selectedRowForDetail;
     private bool isLoading = true;
     private string? error;
+    private string? _copyFeedback;
+    private System.Threading.CancellationTokenSource? _copyCts;
 
-    private int TotalPages => pageSize > 0 ? (int)Math.Ceiling((double)totalCount / pageSize) : 1;
-    private string SortLabel => sortDirection == SortDirection.Descending ? "PK ↓" : "PK ↑";
+    private bool HasNextPage => totalCount == -1
+        ? rows?.Count == pageSize   // if we got a full page there may be more
+        : pageNumber < TotalPages;
+
+    private int TotalPages => totalCount >= 0 && pageSize > 0
+        ? (int)Math.Ceiling((double)totalCount / pageSize)
+        : pageNumber + (rows?.Count == pageSize ? 1 : 0);
+
+    private string ToolbarPageInfo => totalCount >= 0
+        ? $"Page {pageNumber} of {TotalPages} ({totalCount:N0} rows)"
+        : $"Page {pageNumber}";
+
+    private string PkSortLabel => pkSortDirection == SortDirection.Descending ? "PK ↓" : "PK ↑";
+    private string ColSortArrow(string col) =>
+        sortColumn == col ? (sortColumnDir == SortDirection.Ascending ? "↑" : "↓") : "";
+
     private string CsvUrl
     {
         get
         {
-            var url = $"/api/data/export-csv?schema={Uri.EscapeDataString(SchemaName)}&objectName={Uri.EscapeDataString(ObjectName)}&scope={Uri.EscapeDataString(exportScope)}&sortDir={(int)sortDirection}";
+            var url = $"/api/data/export-csv?schema={Uri.EscapeDataString(SchemaName)}&objectName={Uri.EscapeDataString(ObjectName)}&scope={Uri.EscapeDataString(exportScope)}&sortDir={(int)pkSortDirection}";
             if (exportScope == "page")
                 url += $"&page={pageNumber}&pageSize={pageSize}";
             return url;
@@ -95,8 +157,10 @@
     protected override async Task OnParametersSetAsync()
     {
         pageNumber = 1;
-        sortDirection = SortDirection.Descending;
+        pkSortDirection = SortDirection.Descending;
+        sortColumn = null;
         exportScope = "page";
+        selectedRowForDetail = null;
         await LoadData();
     }
 
@@ -104,17 +168,19 @@
     {
         isLoading = true;
         error = null;
+        columns = [];
         try
         {
-            var result = await DataService.GetPagedDataAsync(
-                SchemaName, ObjectName,
-                new PagingOptions
-                {
-                    PageNumber = pageNumber,
-                    PageSize = pageSize,
-                    OrderByPrimaryKey = sortDirection
-                });
+            var paging = new PagingOptions
+            {
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                OrderByPrimaryKey = pkSortDirection,
+                SortColumn = sortColumn,
+                SortColumnDirection = sortColumnDir
+            };
 
+            var result = await DataService.GetPagedDataAsync(SchemaName, ObjectName, paging);
             rows = result.Items;
             totalCount = result.TotalCount;
 
@@ -123,12 +189,19 @@
         }
         catch (Exception ex)
         {
-            error = ex.Message;
+            Logger.LogError(ex, "Error loading data for {Schema}.{Object} page {Page}", SchemaName, ObjectName, pageNumber);
+            error = "Failed to load data. Please try again.";
         }
         finally
         {
             isLoading = false;
         }
+    }
+
+    private async Task ResetAndLoad()
+    {
+        pageNumber = 1;
+        await LoadData();
     }
 
     private async Task PrevPage()
@@ -138,15 +211,61 @@
 
     private async Task NextPage()
     {
-        if (pageNumber < TotalPages) { pageNumber++; await LoadData(); }
+        if (HasNextPage) { pageNumber++; await LoadData(); }
     }
 
-    private async Task ToggleSortDirection()
+    private async Task TogglePkSortDirection()
     {
-        sortDirection = sortDirection == SortDirection.Descending
+        sortColumn = null;
+        pkSortDirection = pkSortDirection == SortDirection.Descending
             ? SortDirection.Ascending
             : SortDirection.Descending;
         pageNumber = 1;
         await LoadData();
     }
+
+    private async Task SetColumnSort(string col)
+    {
+        if (sortColumn == col)
+            sortColumnDir = sortColumnDir == SortDirection.Ascending ? SortDirection.Descending : SortDirection.Ascending;
+        else
+        {
+            sortColumn = col;
+            sortColumnDir = SortDirection.Ascending;
+        }
+        pageNumber = 1;
+        await LoadData();
+    }
+
+    private async Task ClearColumnSort()
+    {
+        sortColumn = null;
+        pageNumber = 1;
+        await LoadData();
+    }
+
+    private void ToggleRowDetail(DataRow row)
+    {
+        selectedRowForDetail = selectedRowForDetail == row ? null : row;
+    }
+
+    private async Task CopyCell(string value)
+    {
+        var ok = await JS.InvokeAsync<bool>("copyToClipboard", value);
+        if (ok)
+        {
+            _copyCts?.Cancel();
+            _copyCts = new System.Threading.CancellationTokenSource();
+            _copyFeedback = "Copied!";
+            StateHasChanged();
+            try
+            {
+                await Task.Delay(1500, _copyCts.Token);
+                _copyFeedback = null;
+                StateHasChanged();
+            }
+            catch (TaskCanceledException) { }
+        }
+    }
 }
+
