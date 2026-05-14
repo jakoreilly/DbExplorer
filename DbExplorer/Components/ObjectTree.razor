@@ -6,9 +6,10 @@
 @inject DatabaseSelectorState SelectorState
 @inject NavigationManager Nav
 @rendermode InteractiveServer
+@implements IDisposable
 
 <div class="object-tree">
-    @if (catalogs is not null && catalogs.Count > 1)
+    @if (catalogs is not null && (catalogs.Count > 1 || SelectorState.Current.Provider == DatabaseProvider.PostgreSql))
     {
         <div class="search-box">
             <select class="database-selector" value="@currentCatalog" @onchange="OnCatalogChanged" aria-label="Select catalog">
@@ -23,6 +24,28 @@
     <div class="search-box">
         <input @bind="searchTerm" @bind:event="oninput" placeholder="Filter objects…" />
     </div>
+
+    @if (!string.IsNullOrWhiteSpace(currentCatalog))
+    {
+        <div class="current-catalog">Connected catalog: <strong>@currentCatalog</strong></div>
+        @if (SelectorState.Current.Provider == DatabaseProvider.PostgreSql &&
+            (string.Equals(currentCatalog, "postgres", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(currentCatalog, "template0", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(currentCatalog, "template1", StringComparison.OrdinalIgnoreCase)))
+        {
+            <div class="catalog-warning">
+                Connected to a PostgreSQL system database. If you expect user tables, select another catalog or update the connection string.
+                @if (catalogs is not null && catalogs.Count > 1)
+                {
+                    <div class="catalog-warning-detail">Available databases: @string.Join(", ", catalogs.Select(c => c.CatalogName))</div>
+                }
+                else
+                {
+                    <div class="catalog-warning-detail">No other databases were detected on this server.</div>
+                }
+            </div>
+        }
+    }
 
     @if (isLoading)
     {
@@ -43,20 +66,27 @@
 
                 @if (expandedSchemas.Contains(schema.SchemaName) && objectsBySchema.TryGetValue(schema.SchemaName, out var objs))
                 {
-                    foreach (var group in objs.GroupBy(o => o.ObjectType))
+                    @if (objs.Count == 0)
                     {
-                        <div class="type-group">
-                            <span class="type-label">@group.Key</span>
-                            @foreach (var obj in group.Where(o =>
-                                string.IsNullOrWhiteSpace(searchTerm) ||
-                                o.ObjectName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)))
-                            {
-                                <button class="object-node @(selectedObject == obj ? "selected" : "")" type="button"
-                                        @onclick="() => SelectObject(obj)">
-                                    @obj.ObjectName
-                                </button>
-                            }
-                        </div>
+                        <div class="schema-empty">No objects in this schema.</div>
+                    }
+                    else
+                    {
+                        foreach (var group in objs.GroupBy(o => o.ObjectType))
+                        {
+                            <div class="type-group">
+                                <span class="type-label">@group.Key</span>
+                                @foreach (var obj in group.Where(o =>
+                                    string.IsNullOrWhiteSpace(searchTerm) ||
+                                    o.ObjectName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    <button class="object-node @(selectedObject == obj ? "selected" : "")" type="button"
+                                            @onclick="() => SelectObject(obj)">
+                                        @obj.ObjectName
+                                    </button>
+                                }
+                            </div>
+                        }
                     }
                 }
             </div>
@@ -76,6 +106,11 @@
     private string? loadError;
 
     [Inject] private ILogger<ObjectTree> Logger { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        SelectorState.OnChange += HandleDatabaseChanged;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -118,6 +153,24 @@
             currentCatalog = preferred;
             SelectorState.SetCatalog(currentCatalog);
             return;
+        }
+
+        // For PostgreSQL: if we'd default to a system database but user databases exist, prefer the first user database.
+        if (SelectorState.Current.Provider == DatabaseProvider.PostgreSql
+            && catalogs.Count > 1)
+        {
+            var systemDatabases = new[] { "postgres", "template0", "template1" };
+            if (systemDatabases.Contains(detected, StringComparer.OrdinalIgnoreCase))
+            {
+                var userDb = catalogs.FirstOrDefault(c =>
+                    !systemDatabases.Contains(c.CatalogName, StringComparer.OrdinalIgnoreCase));
+                if (userDb is not null)
+                {
+                    currentCatalog = userDb.CatalogName;
+                    SelectorState.SetCatalog(currentCatalog);
+                    return;
+                }
+            }
         }
 
         currentCatalog = catalogs.FirstOrDefault(c => string.Equals(c.CatalogName, detected, StringComparison.OrdinalIgnoreCase))?.CatalogName
@@ -183,5 +236,39 @@
     {
         selectedObject = obj;
         Nav.NavigateTo($"/explore/{Uri.EscapeDataString(obj.SchemaName)}/{Uri.EscapeDataString(obj.ObjectName)}");
+    }
+
+    private void HandleDatabaseChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            isLoading = true;
+            loadError = null;
+            schemas = null;
+            objectsBySchema.Clear();
+            expandedSchemas.Clear();
+            selectedObject = null;
+            StateHasChanged();
+            try
+            {
+                await LoadCatalogsAsync();
+                await ReloadSchemasAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "Failed to reload schemas after database switch");
+                loadError = "Failed to load database objects. Check connection settings.";
+            }
+            finally
+            {
+                isLoading = false;
+                StateHasChanged();
+            }
+        });
+    }
+
+    public void Dispose()
+    {
+        SelectorState.OnChange -= HandleDatabaseChanged;
     }
 }

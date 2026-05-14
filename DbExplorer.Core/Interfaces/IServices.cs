@@ -41,3 +41,17 @@ public interface IDataBrowsingService
         PagingOptions paging,
         CancellationToken ct = default);
 }
+
+public interface IAdHocQueryService
+{
+    Task<QueryResult> ExecuteQueryAsync(string sql, int maxRows = 1000, CancellationToken ct = default);
+    Task<string> ExplainQueryAsync(string sql, CancellationToken ct = default);
+    Task<QueryResult> GetActivityAsync(CancellationToken ct = default);
+}
+
+public interface IQueryProfiler
+{
+    void Record(string provider, string sql, long elapsedMs, int rowCount);
+    IReadOnlyList<ProfiledQuery> GetHistory();
+    void Clear();
+}

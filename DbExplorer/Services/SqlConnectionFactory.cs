@@ -36,6 +36,8 @@ public sealed class DatabaseSelectorState
     private string _selectedName;
     private string? _selectedCatalog;
 
+    public event Action? OnChange;
+
     public DatabaseSelectorState(IConfiguration configuration)
     {
         var configuredOptions = LoadConfiguredOptions(configuration).ToList();
@@ -98,16 +100,19 @@ public sealed class DatabaseSelectorState
         if (string.IsNullOrWhiteSpace(name))
             return false;
 
+        bool changed;
         lock (_sync)
         {
             var match = Options.FirstOrDefault(o => string.Equals(o.Name, name, StringComparison.OrdinalIgnoreCase));
             if (match is null)
                 return false;
 
+            changed = !string.Equals(_selectedName, match.Name, StringComparison.OrdinalIgnoreCase);
             _selectedName = match.Name;
             _selectedCatalog = null;
-            return true;
         }
+        if (changed) OnChange?.Invoke();
+        return true;
     }
 
     public string? SelectedCatalog

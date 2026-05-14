@@ -86,3 +86,22 @@ public record PagingOptions
     public string? SortColumn { get; init; }
     public SortDirection SortColumnDirection { get; init; } = SortDirection.Ascending;
 }
+
+// ── Profiler models ───────────────────────────────────────────────────────────
+
+public record QueryResultColumn(string Name);
+
+public record QueryResult(
+    IReadOnlyList<QueryResultColumn> Columns,
+    IReadOnlyList<IReadOnlyDictionary<string, object?>> Rows,
+    long ElapsedMs,
+    string? Warning
+);
+
+public record ProfiledQuery(
+    DateTimeOffset Timestamp,
+    string Provider,
+    string Sql,
+    long ElapsedMs,
+    int RowCount
+);

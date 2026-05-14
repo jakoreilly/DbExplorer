@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @using DbExplorer.Services
 @inject ThemeState ThemeState
+@inject IJSRuntime JS
 @implements IDisposable
 
 <div class="layout @(ThemeState.IsDarkMode ? "theme-dark" : "theme-light")">
@@ -8,12 +9,17 @@
         <div class="sidebar-header">
             <h1>DbExplorer</h1>
         </div>
+        <nav class="sidebar-nav">
+            <a href="/" class="sidebar-nav-link">Explorer</a>
+            <a href="/profiler" class="sidebar-nav-link">Profiler</a>
+        </nav>
         <RecentlyViewed />
         <ObjectTree />
     </nav>
     <main class="main-content">
         <div class="top-bar">
             <ThemeToggle />
+            <DatabaseSelector />
             <form method="post" action="/logout" class="logout-form" @formname="logout-form">
                 <AntiforgeryToken />
                 <button type="submit">Sign Out</button>
@@ -29,6 +35,19 @@
     protected override void OnInitialized()
     {
         ThemeState.OnChange += HandleThemeChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var savedDark = await JS.InvokeAsync<bool>("dbExplorerGetTheme");
+            ThemeState.SetDarkMode(savedDark);
+            // Ensure html element class stays in sync (covers case where circuit reconnects)
+            await JS.InvokeVoidAsync("dbExplorerSetTheme", savedDark);
+        }
+        catch { }
     }
 
     private void HandleThemeChanged()

@@ -17,6 +17,7 @@ public sealed class DbExplorerWebFactory : WebApplicationFactory<Program>
     public Mock<IMetadataService> MetadataMock { get; } = new();
     public Mock<IDataBrowsingService> DataMock { get; } = new();
     public Mock<IIdentifierValidator> ValidatorMock { get; } = new();
+    public Mock<IAdHocQueryService> AdHocMock { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -30,10 +31,12 @@ public sealed class DbExplorerWebFactory : WebApplicationFactory<Program>
             Remove<IIdentifierValidator>(services);
             Remove<IDbConnectionFactory>(services);
             Remove<SqlDialect>(services);
+            Remove<IAdHocQueryService>(services);
 
             services.AddSingleton(MetadataMock.Object);
             services.AddSingleton(DataMock.Object);
             services.AddSingleton(ValidatorMock.Object);
+            services.AddSingleton(AdHocMock.Object);
         });
     }
 

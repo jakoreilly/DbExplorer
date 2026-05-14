@@ -8,6 +8,7 @@
 @inject NavigationManager Nav
 @inject ILogger<ExplorerPage> Logger
 @inject IJSRuntime JS
+@inject DatabaseSelectorState SelectorState
 @rendermode InteractiveServer
 
 <PageTitle>@SchemaName.@ObjectName — DbExplorer</PageTitle>
@@ -130,7 +131,7 @@
         {
             try
             {
-                await JS.InvokeVoidAsync("dbExplorerAddRecent", SchemaName, ObjectName, objectType);
+                await JS.InvokeVoidAsync("dbExplorerAddRecent", SchemaName, ObjectName, objectType, SelectorState.Current.Name);
             }
             catch { /* Non-critical; JS may not be available during pre-render */ }
         }

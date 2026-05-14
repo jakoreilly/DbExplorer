@@ -1,5 +1,6 @@
 @using DbExplorer.Services
 @inject ThemeState ThemeState
+@inject IJSRuntime JS
 
 <button class="theme-toggle" type="button" @onclick="ToggleTheme">
     @ButtonText
@@ -8,8 +9,10 @@
 @code {
     private string ButtonText => ThemeState.IsDarkMode ? "Light Mode" : "Dark Mode";
 
-    private void ToggleTheme()
+    private async Task ToggleTheme()
     {
         ThemeState.Toggle();
+        try { await JS.InvokeVoidAsync("dbExplorerSetTheme", ThemeState.IsDarkMode); }
+        catch { }
     }
 }

@@ -1,7 +1,8 @@
 @using DbExplorer.Services
 @inject DatabaseSelectorState SelectorState
-@inject NavigationManager Nav
+@inject IJSRuntime JS
 
+<span class="db-selector-label">Server:</span>
 <select class="database-selector" value="@CurrentName" @onchange="OnSelectionChanged" aria-label="Select database" title="Select database connection" @key="CurrentName">
     @foreach (var option in SelectorState.Options)
     {
@@ -10,9 +11,35 @@
 </select>
 
 @code {
-    private string CurrentName => SelectorState.Current.Name;
+    private string CurrentName { get; set; } = string.Empty;
+    private bool _initialStateRestored;
 
-    private void OnSelectionChanged(ChangeEventArgs args)
+    protected override void OnInitialized()
+    {
+        CurrentName = SelectorState.Current.Name;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _initialStateRestored)
+            return;
+
+        _initialStateRestored = true;
+
+        try
+        {
+            var saved = await JS.InvokeAsync<string?>("dbExplorerGetSelectedDatabase");
+            if (!string.IsNullOrWhiteSpace(saved) && saved != SelectorState.Current.Name && SelectorState.TrySetCurrent(saved))
+            {
+                CurrentName = saved;
+                StateHasChanged();
+                // OnChange event notifies ObjectTree to reload — no forceLoad needed
+            }
+        }
+        catch { }
+    }
+
+    private async Task OnSelectionChanged(ChangeEventArgs args)
     {
         var selected = args.Value?.ToString();
         if (selected is null)
@@ -20,7 +47,13 @@
 
         if (SelectorState.TrySetCurrent(selected))
         {
-            Nav.NavigateTo(Nav.Uri, forceLoad: true);
+            CurrentName = selected;
+            try
+            {
+                await JS.InvokeVoidAsync("dbExplorerSetSelectedDatabase", selected);
+            }
+            catch { }
+            // OnChange event notifies ObjectTree to reload — no page reload needed
         }
     }
 }

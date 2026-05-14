@@ -1,6 +1,7 @@
 using Dapper;
 using DbExplorer.Core.Interfaces;
 using DbExplorer.Core.Models;
+using System.Diagnostics;
 
 namespace DbExplorer.Services;
 
@@ -11,6 +12,7 @@ namespace DbExplorer.Services;
 public sealed class MetadataService(
     IDbConnectionFactory factory,
     SqlDialect dialect,
+    IQueryProfiler profiler,
     ILogger<MetadataService> logger) : IMetadataService
 {
     private const int TimeoutSeconds = 30;
@@ -114,13 +116,18 @@ public sealed class MetadataService(
             _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
         };
 
+        var sw = Stopwatch.StartNew();
         var rows = await conn.QueryAsync<string>(
             new CommandDefinition(
                 sql,
                 commandTimeout: TimeoutSeconds,
                 cancellationToken: ct));
-
-        return rows.Select(r => new SchemaInfo(r)).ToList();
+        var result = rows.Select(r => new SchemaInfo(r)).ToList();
+        sw.Stop();
+        logger.LogDebug("GetSchemasAsync [{Provider}] returned {Count} schema(s) in {ElapsedMs}ms",
+            factory.Provider, result.Count, sw.ElapsedMilliseconds);
+        profiler.Record(factory.Provider.ToString(), sql, sw.ElapsedMilliseconds, result.Count);
+        return result;
     }
 
     public async Task<IReadOnlyList<DatabaseObjectInfo>> GetObjectsAsync(
@@ -158,13 +165,13 @@ public sealed class MetadataService(
                 """
                 SELECT * FROM (
                     SELECT
-                        t.table_schema AS SchemaName,
-                        t.table_name AS ObjectName,
+                        t.table_schema AS "SchemaName",
+                        t.table_name AS "ObjectName",
                         CASE t.table_type
                             WHEN 'BASE TABLE' THEN 'TABLE'
                             WHEN 'VIEW' THEN 'VIEW'
                             ELSE t.table_type
-                        END AS ObjectType
+                        END AS "ObjectType"
                     FROM information_schema.tables t
                     WHERE t.table_schema NOT IN ('pg_catalog', 'information_schema')
                       AND t.table_type IN ('BASE TABLE', 'VIEW')
@@ -173,19 +180,19 @@ public sealed class MetadataService(
                     UNION ALL
 
                     SELECT
-                        r.routine_schema AS SchemaName,
-                        r.routine_name AS ObjectName,
+                        r.routine_schema AS "SchemaName",
+                        r.routine_name AS "ObjectName",
                         CASE r.routine_type
                             WHEN 'PROCEDURE' THEN 'PROCEDURE'
                             WHEN 'FUNCTION' THEN 'SCALAR_FUNCTION'
                             ELSE r.routine_type
-                        END AS ObjectType
+                        END AS "ObjectType"
                     FROM information_schema.routines r
                     WHERE r.routine_schema NOT IN ('pg_catalog', 'information_schema')
                       AND r.routine_type IN ('FUNCTION', 'PROCEDURE')
                       AND (@schema IS NULL OR r.routine_schema = @schema)
                 ) x
-                ORDER BY SchemaName, ObjectType, ObjectName
+                ORDER BY "SchemaName", "ObjectType", "ObjectName"
                 """,
             DatabaseProvider.MySql =>
                 """
@@ -223,16 +230,22 @@ public sealed class MetadataService(
             _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
         };
 
+        var sw = Stopwatch.StartNew();
         var rows = await conn.QueryAsync(
             new CommandDefinition(sql,
                 new { schema = schemaName },
                 commandTimeout: TimeoutSeconds,
                 cancellationToken: ct));
 
-        return rows.Select(r => new DatabaseObjectInfo(
+        var result = rows.Select(r => new DatabaseObjectInfo(
             (string)r.SchemaName,
             (string)r.ObjectName,
             (string)r.ObjectType)).ToList();
+        sw.Stop();
+        logger.LogDebug("GetObjectsAsync [{Provider}] schema={Schema} returned {Count} object(s) in {ElapsedMs}ms",
+            factory.Provider, schemaName ?? "*", result.Count, sw.ElapsedMilliseconds);
+        profiler.Record(factory.Provider.ToString(), sql, sw.ElapsedMilliseconds, result.Count);
+        return result;
     }
 
     public async Task<IReadOnlyList<ColumnInfo>> GetColumnsAsync(
@@ -244,21 +257,26 @@ public sealed class MetadataService(
         await using var conn = factory.Create();
         await conn.OpenAsync(ct);
 
+        // PostgreSQL lowercases unquoted aliases so we must double-quote them.
+        var isPg = factory.Provider == DatabaseProvider.PostgreSql;
+        var q = isPg ? "\"" : "";
+
+        var sw = Stopwatch.StartNew();
         var rows = await conn.QueryAsync(
             new CommandDefinition(
-                """
+                $"""
                 SELECT
-                    c.TABLE_SCHEMA   AS SchemaName,
-                    c.TABLE_NAME     AS TableName,
-                    c.COLUMN_NAME    AS ColumnName,
-                    c.ORDINAL_POSITION AS OrdinalPosition,
-                    CASE WHEN c.IS_NULLABLE = 'YES' THEN 1 ELSE 0 END AS IsNullable,
-                    c.DATA_TYPE      AS DataType,
-                    c.CHARACTER_MAXIMUM_LENGTH AS MaxLength,
-                    c.NUMERIC_PRECISION AS NumericPrecision,
-                    c.NUMERIC_SCALE  AS NumericScale,
-                    CASE WHEN kcu.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS IsPrimaryKey,
-                    c.COLUMN_DEFAULT AS DefaultValue
+                    c.TABLE_SCHEMA   AS {q}SchemaName{q},
+                    c.TABLE_NAME     AS {q}TableName{q},
+                    c.COLUMN_NAME    AS {q}ColumnName{q},
+                    c.ORDINAL_POSITION AS {q}OrdinalPosition{q},
+                    CASE WHEN c.IS_NULLABLE = 'YES' THEN 1 ELSE 0 END AS {q}IsNullable{q},
+                    c.DATA_TYPE      AS {q}DataType{q},
+                    c.CHARACTER_MAXIMUM_LENGTH AS {q}MaxLength{q},
+                    c.NUMERIC_PRECISION AS {q}NumericPrecision{q},
+                    c.NUMERIC_SCALE  AS {q}NumericScale{q},
+                    CASE WHEN kcu.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END AS {q}IsPrimaryKey{q},
+                    c.COLUMN_DEFAULT AS {q}DefaultValue{q}
                 FROM INFORMATION_SCHEMA.COLUMNS c
                 LEFT JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
                     ON tc.TABLE_SCHEMA = c.TABLE_SCHEMA
@@ -278,7 +296,7 @@ public sealed class MetadataService(
                 commandTimeout: TimeoutSeconds,
                 cancellationToken: ct));
 
-        return rows.Select(r => new ColumnInfo(
+        var result = rows.Select(r => new ColumnInfo(
             (string)r.SchemaName,
             (string)r.TableName,
             (string)r.ColumnName,
@@ -290,6 +308,11 @@ public sealed class MetadataService(
             (int?)r.NumericScale,
             ((int)r.IsPrimaryKey) == 1,
             (string?)r.DefaultValue)).ToList();
+        sw.Stop();
+        logger.LogDebug("GetColumnsAsync [{Provider}] {Schema}.{Table} returned {Count} column(s) in {ElapsedMs}ms",
+            factory.Provider, schemaName, objectName, result.Count, sw.ElapsedMilliseconds);
+        profiler.Record(factory.Provider.ToString(), $"GetColumnsAsync {schemaName}.{objectName}", sw.ElapsedMilliseconds, result.Count);
+        return result;
     }
 
     public async Task<IReadOnlyList<IndexInfo>> GetIndexesAsync(
@@ -326,13 +349,13 @@ public sealed class MetadataService(
             DatabaseProvider.PostgreSql =>
                 """
                 SELECT
-                    i.schemaname AS SchemaName,
-                    i.tablename AS TableName,
-                    i.indexname AS IndexName,
-                    CASE WHEN i.indexdef ILIKE '% UNIQUE %' THEN 1 ELSE 0 END AS IsUnique,
-                    CASE WHEN i.indexname ILIKE '%pkey' THEN 1 ELSE 0 END AS IsPrimaryKey,
-                    0 AS IsClustered,
-                    TRIM(BOTH ')' FROM SPLIT_PART(SPLIT_PART(i.indexdef, '(', 2), ' INCLUDE', 1)) AS Columns
+                    i.schemaname AS "SchemaName",
+                    i.tablename AS "TableName",
+                    i.indexname AS "IndexName",
+                    CASE WHEN i.indexdef ILIKE '% UNIQUE %' THEN 1 ELSE 0 END AS "IsUnique",
+                    CASE WHEN i.indexname ILIKE '%pkey' THEN 1 ELSE 0 END AS "IsPrimaryKey",
+                    0 AS "IsClustered",
+                    TRIM(BOTH ')' FROM SPLIT_PART(SPLIT_PART(i.indexdef, '(', 2), ' INCLUDE', 1)) AS "Columns"
                 FROM pg_indexes i
                 WHERE i.schemaname = @schema
                   AND i.tablename = @table
@@ -409,13 +432,13 @@ public sealed class MetadataService(
             DatabaseProvider.PostgreSql =>
                 """
                 SELECT
-                    tc.constraint_name AS ConstraintName,
-                    kcu.table_schema AS SchemaName,
-                    kcu.table_name AS TableName,
-                    kcu.column_name AS ColumnName,
-                    ccu.table_schema AS ReferencedSchema,
-                    ccu.table_name AS ReferencedTable,
-                    ccu.column_name AS ReferencedColumn
+                    tc.constraint_name AS "ConstraintName",
+                    kcu.table_schema AS "SchemaName",
+                    kcu.table_name AS "TableName",
+                    kcu.column_name AS "ColumnName",
+                    ccu.table_schema AS "ReferencedSchema",
+                    ccu.table_name AS "ReferencedTable",
+                    ccu.column_name AS "ReferencedColumn"
                 FROM information_schema.table_constraints tc
                 JOIN information_schema.key_column_usage kcu
                     ON kcu.constraint_name = tc.constraint_name
@@ -499,23 +522,23 @@ public sealed class MetadataService(
                 """
                 SELECT * FROM (
                     SELECT
-                        v.table_schema AS SchemaName,
-                        v.table_name AS ObjectName,
-                        'VIEW' AS ObjectType,
-                        v.view_definition AS Definition
+                        v.table_schema AS "SchemaName",
+                        v.table_name AS "ObjectName",
+                        'VIEW' AS "ObjectType",
+                        v.view_definition AS "Definition"
                     FROM information_schema.views v
                     WHERE v.table_schema = @schema AND v.table_name = @obj
 
                     UNION ALL
 
                     SELECT
-                        n.nspname AS SchemaName,
-                        p.proname AS ObjectName,
+                        n.nspname AS "SchemaName",
+                        p.proname AS "ObjectName",
                         CASE p.prokind
                             WHEN 'p' THEN 'PROCEDURE'
                             ELSE 'SCALAR_FUNCTION'
-                        END AS ObjectType,
-                        pg_get_functiondef(p.oid) AS Definition
+                        END AS "ObjectType",
+                        pg_get_functiondef(p.oid) AS "Definition"
                     FROM pg_proc p
                     JOIN pg_namespace n ON n.oid = p.pronamespace
                     WHERE n.nspname = @schema AND p.proname = @obj
@@ -607,16 +630,16 @@ public sealed class MetadataService(
             DatabaseProvider.PostgreSql =>
                 """
                 SELECT
-                    n.nspname AS SchemaName,
-                    c.relname AS TableName,
-                    tg.tgname AS TriggerName,
-                    CASE WHEN tg.tgenabled = 'D' THEN 1 ELSE 0 END AS IsDisabled,
+                    n.nspname AS "SchemaName",
+                    c.relname AS "TableName",
+                    tg.tgname AS "TriggerName",
+                    CASE WHEN tg.tgenabled = 'D' THEN 1 ELSE 0 END AS "IsDisabled",
                     TRIM(BOTH ', ' FROM CONCAT(
                         CASE WHEN (tg.tgtype & 4) <> 0 THEN 'INSERT, ' ELSE '' END,
                         CASE WHEN (tg.tgtype & 8) <> 0 THEN 'DELETE, ' ELSE '' END,
                         CASE WHEN (tg.tgtype & 16) <> 0 THEN 'UPDATE, ' ELSE '' END,
                         CASE WHEN (tg.tgtype & 32) <> 0 THEN 'TRUNCATE, ' ELSE '' END
-                    )) AS Events
+                    )) AS "Events"
                 FROM pg_trigger tg
                 JOIN pg_class c ON c.oid = tg.tgrelid
                 JOIN pg_namespace n ON n.oid = c.relnamespace

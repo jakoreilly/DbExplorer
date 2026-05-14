@@ -1,0 +1,495 @@
+@page "/profiler"
+@using DbExplorer.Core.Interfaces
+@using DbExplorer.Core.Models
+@using DbExplorer.Options
+@using Microsoft.Extensions.Options
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@inject IAdHocQueryService AdHocService
+@inject IQueryProfiler Profiler
+@inject DatabaseSelectorState SelectorState
+@inject IOptions<ProfilerOptions> ProfilerOpts
+@implements IDisposable
+@rendermode InteractiveServer
+
+<PageTitle>Query Profiler — DbExplorer</PageTitle>
+
+<div class="profiler-page">
+    <div class="profiler-page-header">
+        <h2>Query Profiler</h2>
+        <span class="profiler-connection-badge">@SelectorState.Current.Provider — @SelectorState.Current.Name</span>
+    </div>
+
+    @if (ProfilerOpts.Value.EnableQueryEditor)
+    {
+        <div class="profiler-readonly-notice">
+            Read-only mode — only <code>SELECT</code>, <code>WITH</code>, <code>SHOW</code>, <code>EXPLAIN</code>, and <code>DESCRIBE</code> statements are permitted.
+        </div>
+    }
+
+    @* ── Panel 1: Query Editor ─────────────────────────────────────────────── *@
+    @if (ProfilerOpts.Value.EnableQueryEditor)
+    {
+    <div class="profiler-panel @(panel1Open ? "profiler-panel--open" : "")">
+        <div class="profiler-panel-header" @onclick="() => panel1Open = !panel1Open">
+            <span class="profiler-panel-toggle">@(panel1Open ? "▼" : "▶")</span>
+            <span>Query Editor</span>
+            @if (queryResult is not null)
+            {
+                <span class="profiler-panel-meta">@queryResult.Rows.Count row(s) · @queryResult.ElapsedMs ms</span>
+            }
+        </div>
+        @if (panel1Open)
+        {
+            <div class="profiler-panel-body">
+                <textarea class="profiler-query-textarea"
+                          @bind="queryText"
+                          @bind:event="oninput"
+                          @onkeydown="HandleQueryKeyDown"
+                          rows="8"
+                          spellcheck="false"
+                          placeholder="Enter SQL — Ctrl+Enter to run" />
+
+                <div class="profiler-query-controls">
+                    <button class="profiler-btn profiler-btn--primary"
+                            @onclick="RunQuery"
+                            disabled="@(queryRunning || string.IsNullOrWhiteSpace(queryText))">
+                        @(queryRunning ? "Running…" : "▶ Run")
+                    </button>
+                    <button class="profiler-btn"
+                            @onclick="ExplainQuery"
+                            disabled="@(queryRunning || string.IsNullOrWhiteSpace(queryText))">
+                        Explain
+                    </button>
+                    <button class="profiler-btn profiler-btn--ghost"
+                            @onclick="ClearQuery"
+                            disabled="@queryRunning">
+                        Clear
+                    </button>
+                </div>
+
+                @if (queryError is not null)
+                {
+                    <div class="profiler-error">@queryError</div>
+                }
+
+                @if (queryResult is not null || explainPlan is not null)
+                {
+                    <div class="profiler-result-tabs">
+                        <button class="profiler-tab @(resultTab == "results" ? "profiler-tab--active" : "")"
+                                @onclick='() => resultTab = "results"'>
+                            Results @(queryResult is not null ? $"({queryResult.Rows.Count})" : "")
+                        </button>
+                        <button class="profiler-tab @(resultTab == "plan" ? "profiler-tab--active" : "")"
+                                @onclick='() => resultTab = "plan"'>
+                            Execution Plan
+                        </button>
+                    </div>
+
+                    @if (resultTab == "results" && queryResult is not null)
+                    {
+                        @if (queryResult.Warning is not null)
+                        {
+                            <div class="profiler-warning">⚠ @queryResult.Warning</div>
+                        }
+                        @if (queryResult.Columns.Count == 0)
+                        {
+                            <div class="profiler-empty">Query executed successfully. No rows returned.</div>
+                        }
+                        else
+                        {
+                            <div class="profiler-table-scroll">
+                                <table class="profiler-table">
+                                    <thead>
+                                        <tr>
+                                            @foreach (var col in queryResult.Columns)
+                                            {
+                                                <th>@col.Name</th>
+                                            }
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var row in queryResult.Rows)
+                                        {
+                                            <tr>
+                                                @foreach (var col in queryResult.Columns)
+                                                {
+                                                    var val = row.TryGetValue(col.Name, out var v) ? v : null;
+                                                    <td>@(val is null ? "NULL" : val.ToString())</td>
+                                                }
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    }
+
+                    @if (resultTab == "plan")
+                    {
+                        @if (explainPlan is null)
+                        {
+                            <div class="profiler-empty">Click <strong>Explain</strong> to generate an execution plan.</div>
+                        }
+                        else
+                        {
+                            <pre class="profiler-plan">@explainPlan</pre>
+                        }
+                    }
+                }
+            </div>
+        }
+    </div>
+    } @* end @if EnableQueryEditor *@
+
+    @* ── Panel 2: Live Server Activity ─────────────────────────────────────── *@
+    <div class="profiler-panel @(panel2Open ? "profiler-panel--open" : "")">
+        <div class="profiler-panel-header" @onclick="ToggleActivityPanel">
+            <span class="profiler-panel-toggle">@(panel2Open ? "▼" : "▶")</span>
+            <span>Live Server Activity</span>
+            @if (activityResult is not null)
+            {
+                <span class="profiler-panel-meta">@activityResult.Rows.Count session(s)</span>
+            }
+            @if (refreshInterval > 0)
+            {
+                <span class="profiler-refresh-indicator">● auto @refreshInterval s</span>
+            }
+        </div>
+        @if (panel2Open)
+        {
+            <div class="profiler-panel-body">
+                <div class="profiler-activity-controls">
+                    <label>Auto-refresh:</label>
+                    <select @bind="refreshInterval" @bind:after="OnRefreshIntervalChanged">
+                        <option value="0">Off</option>
+                        <option value="3">3 s</option>
+                        <option value="5">5 s</option>
+                        <option value="10">10 s</option>
+                    </select>
+                    <button class="profiler-btn" @onclick="LoadActivity" disabled="@activityRunning">
+                        @(activityRunning ? "Loading…" : "Refresh Now")
+                    </button>
+                </div>
+
+                @if (activityError is not null)
+                {
+                    <div class="profiler-error">@activityError</div>
+                }
+                else if (activityResult is null)
+                {
+                    <div class="profiler-empty">Click <strong>Refresh Now</strong> to load activity.</div>
+                }
+                else if (activityResult.Rows.Count == 0)
+                {
+                    <div class="profiler-empty">No active sessions found.</div>
+                }
+                else
+                {
+                    <div class="profiler-table-scroll">
+                        <table class="profiler-table profiler-table--activity">
+                            <thead>
+                                <tr>
+                                    @foreach (var col in activityResult.Columns)
+                                    {
+                                        <th>@col.Name</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in activityResult.Rows)
+                                {
+                                    <tr>
+                                        @foreach (var col in activityResult.Columns)
+                                        {
+                                            var val = row.TryGetValue(col.Name, out var v) ? v : null;
+                                            <td class="@(col.Name == "query" ? "profiler-td-query" : "")">
+                                                @(val is null ? "" : val.ToString())
+                                            </td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    @* ── Panel 3: App Query Log ────────────────────────────────────────────── *@
+    <div class="profiler-panel @(panel3Open ? "profiler-panel--open" : "")">
+        <div class="profiler-panel-header" @onclick="ToggleLogPanel">
+            <span class="profiler-panel-toggle">@(panel3Open ? "▼" : "▶")</span>
+            <span>App Query Log</span>
+            @if (queryLog is not null && queryLog.Count > 0)
+            {
+                <span class="profiler-panel-meta">@queryLog.Count entr@(queryLog.Count == 1 ? "y" : "ies")</span>
+            }
+        </div>
+        @if (panel3Open)
+        {
+            <div class="profiler-panel-body">
+                <div class="profiler-log-controls">
+                    <button class="profiler-btn" @onclick="RefreshLog">Refresh</button>
+                    <button class="profiler-btn profiler-btn--ghost" @onclick="ClearLog"
+                            disabled="@(queryLog is null || queryLog.Count == 0)">
+                        Clear
+                    </button>
+                    <span class="profiler-log-hint">Captures MetadataService &amp; DataBrowsingService queries for this session.</span>
+                </div>
+
+                @if (queryLog is null || queryLog.Count == 0)
+                {
+                    <div class="profiler-empty">No queries recorded yet. Browse the explorer to populate this log.</div>
+                }
+                else
+                {
+                    <div class="profiler-table-scroll">
+                        <table class="profiler-table profiler-table--log">
+                            <thead>
+                                <tr>
+                                    <th>Time (UTC)</th>
+                                    <th>Provider</th>
+                                    <th>Elapsed</th>
+                                    <th>Rows</th>
+                                    <th>SQL</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var entry in queryLog)
+                                {
+                                    <tr>
+                                        <td class="profiler-td-ts">@entry.Timestamp.ToString("HH:mm:ss.fff")</td>
+                                        <td>@entry.Provider</td>
+                                        <td class="profiler-td-num">@entry.ElapsedMs ms</td>
+                                        <td class="profiler-td-num">@entry.RowCount</td>
+                                        <td class="profiler-td-sql">
+                                            <details>
+                                                <summary>@TruncateSql(entry.Sql, 80)</summary>
+                                                <pre class="profiler-log-sql-full">@entry.Sql</pre>
+                                            </details>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    // ── Panel open state ──────────────────────────────────────────────────────
+    private bool panel1Open = true;
+    private bool panel2Open = false;
+    private bool panel3Open = false;
+
+    // ── Panel 1: Query Editor ─────────────────────────────────────────────────
+    private string queryText = "";
+    private QueryResult? queryResult;
+    private string? explainPlan;
+    private string? queryError;
+    private bool queryRunning;
+    private string resultTab = "results";
+
+    // ── Panel 2: Live Activity ────────────────────────────────────────────────
+    private QueryResult? activityResult;
+    private string? activityError;
+    private bool activityRunning;
+    private int refreshInterval = 0;
+    private CancellationTokenSource? _refreshCts;
+
+    // ── Panel 3: App Query Log ────────────────────────────────────────────────
+    private IReadOnlyList<ProfiledQuery>? queryLog;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    protected override void OnInitialized()
+    {
+        queryLog = Profiler.GetHistory();
+    }
+
+    // ── Panel 1 actions ───────────────────────────────────────────────────────
+    private async Task RunQuery()
+    {
+        if (string.IsNullOrWhiteSpace(queryText)) return;
+        queryRunning = true;
+        queryError = null;
+        queryResult = null;
+        resultTab = "results";
+        StateHasChanged();
+        try
+        {
+            queryResult = await AdHocService.ExecuteQueryAsync(queryText.Trim());
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Validation errors (read-only guard, multi-statement) — safe to show directly.
+            queryError = ex.Message;
+        }
+        catch (Exception ex) when (ex is System.Data.Common.DbException or TimeoutException)
+        {
+            // Database / SQL errors — show the message, it's from the DB engine.
+            queryError = ex.Message;
+        }
+        catch
+        {
+            queryError = "Query failed due to an unexpected error. Check the server log.";
+        }
+        finally
+        {
+            queryRunning = false;
+        }
+    }
+
+    private async Task ExplainQuery()
+    {
+        if (string.IsNullOrWhiteSpace(queryText)) return;
+        queryRunning = true;
+        queryError = null;
+        explainPlan = null;
+        resultTab = "plan";
+        StateHasChanged();
+        try
+        {
+            explainPlan = await AdHocService.ExplainQueryAsync(queryText.Trim());
+        }
+        catch (InvalidOperationException ex)
+        {
+            queryError = ex.Message;
+        }
+        catch (Exception ex) when (ex is System.Data.Common.DbException or TimeoutException)
+        {
+            queryError = ex.Message;
+        }
+        catch
+        {
+            queryError = "Explain failed due to an unexpected error. Check the server log.";
+        }
+        finally
+        {
+            queryRunning = false;
+        }
+    }
+
+    private void ClearQuery()
+    {
+        queryText = "";
+        queryResult = null;
+        explainPlan = null;
+        queryError = null;
+    }
+
+    private async Task HandleQueryKeyDown(KeyboardEventArgs e)
+    {
+        if (e.CtrlKey && e.Key == "Enter")
+            await RunQuery();
+    }
+
+    // ── Panel 2 actions ───────────────────────────────────────────────────────
+    private async Task ToggleActivityPanel()
+    {
+        panel2Open = !panel2Open;
+        if (panel2Open && activityResult is null)
+            await LoadActivity();
+    }
+
+    private async Task LoadActivity()
+    {
+        activityRunning = true;
+        activityError = null;
+        StateHasChanged();
+        try
+        {
+            activityResult = await AdHocService.GetActivityAsync();
+        }
+        catch (Exception ex) when (ex is System.Data.Common.DbException or TimeoutException)
+        {
+            activityError = ex.Message;
+        }
+        catch (OperationCanceledException)
+        {
+            // Silently swallow cancellation (panel closed or refresh stopped).
+        }
+        catch
+        {
+            activityError = "Failed to load activity. Check the server log.";
+        }
+        finally
+        {
+            activityRunning = false;
+            // Must call StateHasChanged here so the timer-driven auto-refresh path
+            // (InvokeAsync → LoadActivity) triggers a re-render after the result arrives.
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnRefreshIntervalChanged()
+    {
+        _refreshCts?.Cancel();
+        _refreshCts?.Dispose();
+        _refreshCts = null;
+
+        if (refreshInterval > 0)
+        {
+            _refreshCts = new CancellationTokenSource();
+            _ = RunRefreshLoopAsync(_refreshCts.Token);
+            await LoadActivity();
+        }
+    }
+
+    private async Task RunRefreshLoopAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(refreshInterval));
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                if (!await timer.WaitForNextTickAsync(token))
+                    break;
+                await InvokeAsync(LoadActivity);
+            }
+            catch (OperationCanceledException) { break; }
+            catch (Exception ex)
+            {
+                await InvokeAsync(() =>
+                {
+                    activityError = $"Auto-refresh failed: {ex.Message}";
+                    StateHasChanged();
+                });
+            }
+        }
+    }
+
+    // ── Panel 3 actions ───────────────────────────────────────────────────────
+    private void ToggleLogPanel()
+    {
+        panel3Open = !panel3Open;
+        if (panel3Open) queryLog = Profiler.GetHistory();
+    }
+
+    private void RefreshLog()
+    {
+        queryLog = Profiler.GetHistory();
+    }
+
+    private void ClearLog()
+    {
+        Profiler.Clear();
+        queryLog = [];
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    private static string TruncateSql(string sql, int maxLen)
+    {
+        var single = sql.ReplaceLineEndings(" ").Trim();
+        return single.Length > maxLen ? single[..maxLen] + "…" : single;
+    }
+
+    public void Dispose()
+    {
+        _refreshCts?.Cancel();
+        _refreshCts?.Dispose();
+    }
+}

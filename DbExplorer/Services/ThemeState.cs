@@ -11,4 +11,11 @@ public sealed class ThemeState
         IsDarkMode = !IsDarkMode;
         OnChange?.Invoke();
     }
+
+    public void SetDarkMode(bool value)
+    {
+        if (IsDarkMode == value) return;
+        IsDarkMode = value;
+        OnChange?.Invoke();
+    }
 }

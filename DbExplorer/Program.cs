@@ -9,6 +9,11 @@ using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
+if (builder.Environment.IsDevelopment())
+{
+    builder.Configuration.AddUserSecrets<Program>(optional: true, reloadOnChange: true);
+}
+
 // ── Serilog ──────────────────────────────────────────────────────────────────
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
@@ -62,6 +67,10 @@ builder.Services.AddOptions<DataBrowsingOptions>()
     .Bind(builder.Configuration.GetSection("DataBrowsing"))
     .ValidateDataAnnotations()
     .ValidateOnStart();
+builder.Services.AddOptions<ProfilerOptions>()
+    .Bind(builder.Configuration.GetSection("Profiler"))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 builder.Services.AddScoped<IDbConnectionFactory>(sp =>
     new DbConnectionFactory(
         sp.GetRequiredService<DatabaseSelectorState>(),
@@ -71,6 +80,8 @@ builder.Services.AddScoped(sp =>
 builder.Services.AddScoped<IIdentifierValidator, IdentifierValidatorService>();
 builder.Services.AddScoped<IMetadataService, MetadataService>();
 builder.Services.AddScoped<IDataBrowsingService, DataBrowsingService>();
+builder.Services.AddScoped<IQueryProfiler, QueryProfilerService>();
+builder.Services.AddScoped<IAdHocQueryService, AdHocQueryService>();
 
 // ── App ───────────────────────────────────────────────────────────────────────
 var app = builder.Build();
@@ -106,8 +117,8 @@ app.MapPost("/api/login", LoginHandler.Handle).AllowAnonymous();
 // Logout is POST-only to prevent CSRF-based forced logout via GET requests (e.g. <img> tags).
 app.MapPost("/logout", (Delegate)LogoutHandler.Handle).AllowAnonymous();
 
-// Generate a PBKDF2 hash for a password:
-//var hash = BCryptHelper.Hash("YourPassword");
+// Generate a PBKDF2 hash for a password below is the default for demo:
+//var hash = BCryptHelper.Hash("Db3xpl0r3r!");
 //Console.WriteLine(hash);
 app.Run();
 

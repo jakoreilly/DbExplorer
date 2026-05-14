@@ -1,42 +1,83 @@
 @using System.Text.Json
+@using DbExplorer.Services
 @inject IJSRuntime JS
 @inject NavigationManager Nav
+@inject DatabaseSelectorState SelectorState
+@implements IDisposable
 
-@if (_items.Count > 0)
-{
-    <div class="recent-section">
-        <span class="section-label">Recent</span>
-        @foreach (var item in _items)
-        {
-            <button class="object-node recent-item" type="button" title="@item.SchemaName.@item.ObjectName (@item.ObjectType)"
-                    @onclick="() => Navigate(item)">
-                <span class="recent-icon">@TypeIcon(item.ObjectType)</span>
-                @item.SchemaName.<strong>@item.ObjectName</strong>
-            </button>
-        }
-    </div>
-}
+<div class="recent-section">
+    <button class="recent-toggle" type="button" @onclick="ToggleExpanded">
+        Recent references @(_expanded ? "▾" : "▸")
+    </button>
+
+    @if (_expanded)
+    {
+        <div class="recent-list">
+            @if (_items.Count == 0)
+            {
+                <div class="recent-empty">No recent references yet.</div>
+            }
+            else
+            {
+                @foreach (var item in _items)
+                {
+                    <button class="object-node recent-item" type="button" title="@item.SchemaName.@item.ObjectName (@item.ObjectType)"
+                            @onclick="() => Navigate(item)">
+                        <span class="recent-icon">@TypeIcon(item.ObjectType)</span>
+                        @item.SchemaName.<strong>@item.ObjectName</strong>
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
 
 @code {
     private List<RecentItem> _items = [];
+    private bool _expanded = true;
+    private bool _jsReady;
+
+    protected override void OnInitialized()
+    {
+        SelectorState.OnChange += HandleServerChanged;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (!firstRender) return;
+        _jsReady = true;
+        await LoadItemsAsync();
+    }
+
+    private async Task LoadItemsAsync()
+    {
         try
         {
-            var raw = await JS.InvokeAsync<JsonElement[]>("dbExplorerGetRecent");
+            var raw = await JS.InvokeAsync<JsonElement[]>("dbExplorerGetRecent", SelectorState.Current.Name);
             _items = raw
                 .Select(e => new RecentItem(
                     e.GetProperty("schemaName").GetString() ?? "",
                     e.GetProperty("objectName").GetString() ?? "",
                     e.GetProperty("objectType").GetString() ?? ""))
                 .Where(x => !string.IsNullOrWhiteSpace(x.SchemaName) && !string.IsNullOrWhiteSpace(x.ObjectName))
+                .Take(10)
                 .ToList();
             StateHasChanged();
         }
         catch { /* JS not available during SSR pre-render */ }
     }
+
+    private void HandleServerChanged()
+    {
+        if (!_jsReady) return;
+        _ = InvokeAsync(LoadItemsAsync);
+    }
+
+    public void Dispose()
+    {
+        SelectorState.OnChange -= HandleServerChanged;
+    }
+    private void ToggleExpanded() => _expanded = !_expanded;
 
     private void Navigate(RecentItem item) =>
         Nav.NavigateTo($"/explore/{Uri.EscapeDataString(item.SchemaName)}/{Uri.EscapeDataString(item.ObjectName)}");

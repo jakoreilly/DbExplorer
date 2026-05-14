@@ -8,6 +8,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <base href="/" />
     <title>DbExplorer</title>
+    <script>
+        // Apply saved theme immediately to prevent flash on any page (including login)
+        try {
+            if (localStorage.getItem('dbexplorer_theme_dark') === '1') {
+                document.documentElement.classList.add('theme-dark');
+            }
+        } catch (e) { }
+    </script>
     <link rel="stylesheet" href="css/app.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" class="hljs-theme-light" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" class="hljs-theme-dark" disabled />
@@ -19,19 +27,41 @@
     <script src="_framework/blazor.server.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script>
-        // Recently-viewed objects persisted in localStorage (max 10 entries)
-        window.dbExplorerAddRecent = function (schema, name, type) {
+        // Recently-viewed objects persisted in localStorage (max 10 entries per server)
+        window.dbExplorerAddRecent = function (schema, name, type, server) {
             try {
                 const key = 'dbexplorer_recent';
                 const existing = JSON.parse(localStorage.getItem(key) || '[]');
-                const filtered = existing.filter(x => !(x.schemaName === schema && x.objectName === name));
-                filtered.unshift({ schemaName: schema, objectName: name, objectType: type });
-                localStorage.setItem(key, JSON.stringify(filtered.slice(0, 10)));
+                const filtered = existing.filter(x => !(x.schemaName === schema && x.objectName === name && x.server === server));
+                filtered.unshift({ schemaName: schema, objectName: name, objectType: type, server: server });
+                localStorage.setItem(key, JSON.stringify(filtered.slice(0, 50)));
             } catch (e) { }
         };
-        window.dbExplorerGetRecent = function () {
-            try { return JSON.parse(localStorage.getItem('dbexplorer_recent') || '[]'); }
+        window.dbExplorerGetRecent = function (server) {
+            try {
+                const all = JSON.parse(localStorage.getItem('dbexplorer_recent') || '[]');
+                return server ? all.filter(x => x.server === server) : all;
+            }
             catch (e) { return []; }
+        };
+        window.dbExplorerSetSelectedDatabase = function (name) {
+            try { localStorage.setItem('dbexplorer_selected_database', name); }
+            catch (e) { }
+        };
+        window.dbExplorerGetSelectedDatabase = function () {
+            try { return localStorage.getItem('dbexplorer_selected_database'); }
+            catch (e) { return null; }
+        };
+        window.dbExplorerSetTheme = function (isDark) {
+            try {
+                localStorage.setItem('dbexplorer_theme_dark', isDark ? '1' : '0');
+                document.documentElement.classList.toggle('theme-dark', isDark);
+            }
+            catch (e) { }
+        };
+        window.dbExplorerGetTheme = function () {
+            try { return localStorage.getItem('dbexplorer_theme_dark') === '1'; }
+            catch (e) { return false; }
         };
         // Trigger highlight.js on a container element
         window.hljsHighlight = function (el) {

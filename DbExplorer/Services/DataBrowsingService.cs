@@ -14,6 +14,7 @@ public sealed class DataBrowsingService(
     IDbConnectionFactory factory,
     SqlDialect dialect,
     IIdentifierValidator validator,
+    IQueryProfiler profiler,
     ILogger<DataBrowsingService> logger,
     IOptions<DataBrowsingOptions> options) : IDataBrowsingService
 {
@@ -102,6 +103,7 @@ public sealed class DataBrowsingService(
             _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
         };
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         var rawRows = await conn.QueryAsync(
             new CommandDefinition(dataSql,
                 new { offset, pageSize },
@@ -117,9 +119,11 @@ public sealed class DataBrowsingService(
             })
             .ToList();
 
+        sw.Stop();
         logger.LogInformation(
             "Paged data fetched from {Schema}.{Object}: page {Page}/{PageSize}, total {Total}",
             schemaName, objectName, pageNumber, pageSize, totalCount);
+        profiler.Record(factory.Provider.ToString(), $"SELECT * FROM {schemaName}.{objectName} (page {pageNumber})", sw.ElapsedMilliseconds, dataRows.Count);
 
         return new PagedResult<DataRow>(dataRows, pageNumber, pageSize, totalCount);
     }

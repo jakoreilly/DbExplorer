@@ -21,6 +21,7 @@ public class DataBrowsingServiceTests
             factory,
             new SqlDialect(DatabaseProvider.SqlServer),
             v,
+            Mock.Of<IQueryProfiler>(),
             NullLogger<DataBrowsingService>.Instance,
             Microsoft.Extensions.Options.Options.Create(new DataBrowsingOptions()));
     }
