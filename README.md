@@ -1,16 +1,18 @@
 # DbExplorer
 
-A production-grade, read-only SQL Server database explorer built on .NET 10 ASP.NET Core with a Blazor Server frontend.
+A production-grade, read-only multi-database explorer built on .NET 10 ASP.NET Core with a Blazor Server frontend. Supports **SQL Server**, **MySQL**, and **PostgreSQL** from a single interface.
 
 ## Features
 
 - Dynamic schema discovery at runtime — no prior knowledge of the target database required
-- Browse schemas, tables, views, stored procedures, and functions
-- View columns (with types, nullability, defaults, PK membership), indexes, and foreign keys
-- Read object definitions (views, procs, functions) in a source viewer
-- Pageable data grid with server-side paging (max 500 rows/page, default 50)
+- Browse schemas, tables, views, stored procedures, functions, and triggers
+- View columns (with types, nullability, defaults, PK membership), indexes, foreign keys, and object definitions
+- Read object definitions (views, stored procedures, functions, triggers) in a source viewer
+- Pageable data grid with server-side paging (max 500 rows/page, default 50), column sorting
 - CSV export of the current page
-- Object name search/filter in the left-hand tree
+- Object name search/filter in the left-hand tree with recently-viewed tracking
+- **Query Profiler** page — ad-hoc read-only SQL editor with EXPLAIN plan support, live server activity monitor, and per-session query history
+- Dark mode / light mode theme toggle
 - Rate limited API (120 req/min per IP)
 - Cookie-based authentication
 
@@ -20,43 +22,61 @@ A production-grade, read-only SQL Server database explorer built on .NET 10 ASP.
 
 ### Read-Only by Design
 
-The application **only ever executes** `SELECT` queries and read-only catalog queries. There are no endpoints, pages, or service methods that issue `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `ALTER`, `CREATE`, `EXEC`, or accept arbitrary SQL from the user.
+The application **only ever executes** `SELECT` queries and read-only catalog queries. There are no endpoints, pages, or service methods that issue `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `DROP`, `ALTER`, `CREATE`, `EXEC`, or accept arbitrary SQL from users — except through the Profiler's ad-hoc editor, which enforces read-only validation before execution (see [EnsureReadOnly](#query-profiler-read-only-enforcement)).
 
 ### Identifier Validation
 
 Every schema and object name passes through two layers of validation before use in SQL:
 
 1. **Static format check** (`SqlIdentifierHelper.IsValidIdentifierFormat`) — rejects names containing spaces, SQL metacharacters, or names exceeding 128 characters.
-2. **Live catalog check** (`IIdentifierValidator.ValidateObjectAsync`) — parameterized-query lookup against `sys.objects` / `sys.schemas` to confirm the name exists. Only after both checks pass does the service bracket-quote the identifier with `SqlIdentifierHelper.Quote` and interpolate it into a fixed, read-only SQL template.
+2. **Live catalog check** (`IIdentifierValidator.ValidateObjectAsync`) — parameterized-query lookup against system catalogs to confirm the name exists. Only after both checks pass does the service quote the identifier and interpolate it into a fixed, read-only SQL template.
 
-User-supplied values (page number, page size, search filter) are **never** interpolated into SQL — they are passed as Dapper parameters.
+User-supplied values (page number, page size, search filter, column name) are **never** interpolated into SQL — they are passed as Dapper parameters.
+
+### Query Profiler Read-Only Enforcement
+
+The `EnsureReadOnly` guard in `AdHocQueryService` strips both block and line comments from submitted SQL, then:
+
+1. Rejects multi-statement batches (`;` separator)
+2. Requires the statement to begin with `SELECT`, `WITH` (CTE), `SHOW`, `EXPLAIN`, `DESCRIBE`, or `DESC`
+3. Scans the full text for write-DML keywords (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, `EXEC`, `EXECUTE`, `MERGE`, `TRUNCATE`, `CALL`) — also blocks writable CTEs
+
+The Profiler's SQL editor can be disabled entirely via the `Profiler:EnableQueryEditor` feature flag in `appsettings.json`.
 
 ### Least-Privilege SQL Account
 
-The SQL login used by DbExplorer should have:
+The database account used by DbExplorer should be read-only. Example for each provider:
 
+**SQL Server**
 ```sql
--- Create a dedicated login
 CREATE LOGIN dbexplorer_ro WITH PASSWORD = '<strong password>';
 USE YourDatabase;
 CREATE USER dbexplorer_ro FOR LOGIN dbexplorer_ro;
-
--- Minimum permissions
 EXEC sp_addrolemember 'db_datareader', 'dbexplorer_ro';
 GRANT VIEW DEFINITION TO dbexplorer_ro;
 ```
 
-The application does not need `db_owner`, `db_ddladmin`, or any write permissions.
+**MySQL**
+```sql
+CREATE USER 'dbexplorer_ro'@'%' IDENTIFIED BY '<strong password>';
+GRANT SELECT, SHOW DATABASES, PROCESS ON *.* TO 'dbexplorer_ro'@'%';
+GRANT SELECT ON your_database.* TO 'dbexplorer_ro'@'%';
+FLUSH PRIVILEGES;
+```
+
+**PostgreSQL**
+```sql
+CREATE USER dbexplorer_ro WITH PASSWORD '<strong password>';
+GRANT CONNECT ON DATABASE your_database TO dbexplorer_ro;
+GRANT USAGE ON SCHEMA public TO dbexplorer_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO dbexplorer_ro;
+```
 
 ### Authentication
 
-DbExplorer uses ASP.NET Core cookie authentication. Users are configured in `appsettings.json` with PBKDF2-hashed passwords. **Replace the placeholder hash** before deployment:
+DbExplorer uses ASP.NET Core cookie authentication. Users are configured in `appsettings.json` with PBKDF2-hashed passwords.
 
-```csharp
-// Generate a PBKDF2 hash for a password:
-var hash = BCryptHelper.Hash("YourPassword");
-Console.WriteLine(hash);
-```
+To generate a password hash, use the built-in `Pbkdf2HashGenerator` utility or generate one with .NET's `KeyDerivation.Pbkdf2`. Replace the `PasswordHash` value in `appsettings.json` before deploying.
 
 For production use, replace the simple cookie auth with Windows Authentication, Azure Entra ID (OIDC), or another enterprise provider.
 
@@ -66,7 +86,7 @@ API endpoints are protected by ASP.NET Core rate limiting: 120 requests per IP p
 
 ### No Secrets in Code
 
-Connection strings and user credentials must come from `appsettings.json` (development) or environment variables / Azure Key Vault / secrets manager (production). Never commit real credentials.
+Connection strings and user credentials must come from `appsettings.Development.json` (local dev) or environment variables / Azure Key Vault / secrets manager (production). **Never commit real credentials.** See [Setup](#setup) for guidance.
 
 ---
 
@@ -80,12 +100,22 @@ DbExplorer.sln
 │   └── Validation/SqlIdentifierHelper.cs
 ├── DbExplorer/                    # ASP.NET Core Blazor Web Application
 │   ├── Controllers/               # Thin API controllers (metadata, data)
-│   ├── Services/                  # Business logic (metadata, data browsing, auth, connection)
+│   ├── Services/                  # Business logic
+│   │   ├── MetadataService.cs
+│   │   ├── DataBrowsingService.cs
+│   │   ├── AdHocQueryService.cs   # Read-only ad-hoc SQL execution + EnsureReadOnly guard
+│   │   ├── QueryProfilerService.cs# Per-circuit ring buffer of recent queries
+│   │   ├── AuthServices.cs
+│   │   └── SqlConnectionFactory.cs
+│   ├── Options/                   # Strongly-typed configuration sections
+│   │   ├── DataBrowsingOptions.cs
+│   │   └── ProfilerOptions.cs     # EnableQueryEditor feature flag
 │   ├── Components/                # Blazor components
-│   │   ├── Layout/                # MainLayout
-│   │   ├── Pages/                 # Home, ExplorerPage
-│   │   └── Panels/                # ColumnsPanel, IndexesPanel, ForeignKeysPanel, DefinitionPanel
-│   ├── wwwroot/css/app.css        # Application styles
+│   │   ├── Layout/                # MainLayout, ThemeToggle
+│   │   ├── Pages/                 # Home, ExplorerPage, Login, ProfilerPage
+│   │   └── Panels/                # ColumnsPanel, IndexesPanel, ForeignKeysPanel,
+│   │                              # DefinitionPanel, TriggersPanel
+│   ├── wwwroot/css/app.css
 │   └── appsettings.json
 └── DbExplorer.Tests/              # xUnit tests
     ├── Unit/                      # Unit tests (no I/O)
@@ -99,36 +129,51 @@ DbExplorer.sln
 ### Prerequisites
 
 - .NET 10 SDK
-- SQL Server 2016+ (or Azure SQL)
+- One or more of: SQL Server 2016+, MySQL 5.7+, PostgreSQL 12+
 
-### 1. Configure the connection string
+### 1. Configure connection strings
 
-Edit `DbExplorer/appsettings.json` (or use user secrets / environment variables):
+Copy `DbExplorer/appsettings.Development.example.json` to `DbExplorer/appsettings.Development.json` (this file is gitignored) and fill in your credentials:
 
 ```json
 {
   "ConnectionStrings": {
-    "SqlServer": "Server=myserver;Database=mydb;User Id=dbexplorer_ro;Password=SECRET;TrustServerCertificate=True;"
+    "MySql":     "Server=localhost;Port=3306;Database=mydb;User ID=dbexplorer_ro;Password=SECRET;",
+    "PostgreSql":"Host=localhost;Database=mydb;Username=dbexplorer_ro;Password=SECRET;",
+    "SqlServer": "Server=localhost;Database=MyDb;User Id=dbexplorer_ro;Password=SECRET;TrustServerCertificate=True;"
   }
 }
 ```
 
-### 2. Configure a user
+Alternatively, use `dotnet user-secrets` to avoid storing credentials in files:
+
+```bash
+cd DbExplorer
+dotnet user-secrets set "ConnectionStrings:MySql" "Server=...;Password=SECRET;"
+```
+
+### 2. Configure databases and users
+
+Edit `DbExplorer/appsettings.json` (the non-secret parts):
 
 ```json
 {
   "DbExplorer": {
+    "Databases": [
+      { "Name": "My Database", "Provider": "MySql", "ConnectionStringName": "MySql" }
+    ],
     "Users": [
-      {
-        "Username": "admin",
-        "PasswordHash": "pbkdf2:<base64-salt>:<base64-hash>"
-      }
+      { "Username": "admin", "PasswordHash": "pbkdf2:<base64-salt>:<base64-hash>" }
     ]
   }
 }
 ```
 
-Generate a hash by running the app in debug mode and calling `BCryptHelper.Hash("YourPassword")`.
+To generate a PBKDF2 hash for a password, run:
+
+```bash
+dotnet run --project DbExplorer -- hash "YourPassword"
+```
 
 ### 3. Run the application
 
@@ -137,13 +182,19 @@ cd DbExplorer
 dotnet run
 ```
 
-Navigate to `https://localhost:5001` and sign in.
+Navigate to `http://localhost:5000` and sign in.
 
 ### 4. Run tests
 
 ```bash
 dotnet test DbExplorer.sln
 ```
+
+### 5. Feature flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `Profiler:EnableQueryEditor` | `true` | Show/hide the ad-hoc SQL editor panel on the Profiler page |
 
 ---
 
@@ -167,7 +218,7 @@ All API endpoints require authentication. Unauthenticated requests receive `401`
 ## Limitations
 
 - The application is read-only. Stored procedures cannot be executed from the UI.
-- Object definitions are only available for views, procedures, and functions (not tables — use the Columns tab instead).
+- Object definitions are only available for views, procedures, functions, and triggers (not tables — use the Columns tab).
 - Very large tables (billions of rows) will have accurate `COUNT_BIG(*)` but may return slowly; the 500-row page cap limits data transfer.
 - The CSV export only exports the currently paged result, not the full table.
 - The login page uses a simple PBKDF2-based credential store. For enterprise use, replace with OIDC/Windows Auth.
@@ -178,6 +229,6 @@ All API endpoints require authentication. Unauthenticated requests receive `401`
 
 - All database calls pass `CancellationToken` propagated from HTTP request contexts.
 - All connections are opened per-request via `SqlConnectionFactory` (no connection pooling singleton).
-- `Dapper` is used for lightweight mapping of catalog query results. No ORM writes.
+- Dapper is used for lightweight mapping of catalog query results. No ORM writes.
 - `ProblemDetails` responses are returned for all API errors.
-- `Serilog` writes structured logs to console and rolling daily files in `logs/`.
+- Serilog writes structured logs to console and rolling daily files in `logs/`.

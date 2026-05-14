@@ -117,9 +117,6 @@ app.MapPost("/api/login", LoginHandler.Handle).AllowAnonymous();
 // Logout is POST-only to prevent CSRF-based forced logout via GET requests (e.g. <img> tags).
 app.MapPost("/logout", (Delegate)LogoutHandler.Handle).AllowAnonymous();
 
-// Generate a PBKDF2 hash for a password below is the default for demo:
-//var hash = BCryptHelper.Hash("Db3xpl0r3r!");
-//Console.WriteLine(hash);
 app.Run();
 
 
