@@ -316,22 +316,22 @@
         </div>
     </div>
 
-    @* JOIN configuration *@
-    @if (CanvasLinks.Count > 0)
+    @* JOIN configuration — CanvasLinks captured once via 'is var' to avoid two allocations per render *@
+    @if (CanvasLinks is var canvasLinks && canvasLinks.Count > 0)
     {
         <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
             <div class="profiler-panel-header" style="cursor:default">
                 <span>JOIN Configuration</span>
-                <span class="profiler-panel-meta">@CanvasLinks.Count join(s)</span>
+                <span class="profiler-panel-meta">@canvasLinks.Count join(s)</span>
             </div>
             <div class="profiler-panel-body">
-                @foreach (var link in CanvasLinks)
+                @foreach (var link in canvasLinks)
                 {
                     var srcNode = (link.Source as SinglePortAnchor)?.Port.Parent as TableDiagramNode;
                     var tgtNode = (link.Target as SinglePortAnchor)?.Port.Parent as TableDiagramNode;
-                    if (!_canvasJoinConfigs.TryGetValue(link.Id, out var cfg)) continue;
+                    if (srcNode is null || tgtNode is null || !_canvasJoinConfigs.TryGetValue(link.Id, out var cfg)) continue;
                     <div class="qb-join-row" @key="link.Id">
-                        <span class="qb-hint">@srcNode!.Alias.</span>
+                        <span class="qb-hint">@srcNode.Alias.</span>
                         <select class="qb-select qb-select--sm" @bind="cfg.SourceColumn" @bind:after="RecompileCanvas">
                             <option value="">— col —</option>
                             @foreach (var col in srcNode.Columns)
@@ -554,6 +554,7 @@
             // Reset canvas
             _canvasBrowserSchema = "";
             _canvasBrowserTables = new();
+            _isLoadingCanvasTables = false;
             InitCanvas();
 
             var schemas = (await Metadata.GetSchemasAsync()).ToList();
@@ -667,7 +668,10 @@
     private void OnDiagramLinkChanged(Model model)
     {
         if (model is not BaseLinkModel link) return;
-        if (link.Source is not SinglePortAnchor srcAnchor || link.Target is not SinglePortAnchor tgtAnchor) return;
+        // Only act when both ends are fully connected to ports; this filters out position/selection
+        // change events that fire on every pixel of mouse movement during link dragging.
+        if (link.Source is not SinglePortAnchor { Port: not null } srcAnchor ||
+            link.Target is not SinglePortAnchor { Port: not null } tgtAnchor) return;
 
         if (!_canvasJoinConfigs.ContainsKey(link.Id))
         {
