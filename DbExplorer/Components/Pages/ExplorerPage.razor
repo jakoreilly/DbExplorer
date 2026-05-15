@@ -9,6 +9,7 @@
 @inject ILogger<ExplorerPage> Logger
 @inject IJSRuntime JS
 @inject DatabaseSelectorState SelectorState
+@inject DbExplorer.Services.RecentlyViewedState RecentlyViewedState
 @rendermode InteractiveServer
 
 <PageTitle>@SchemaName.@ObjectName — DbExplorer</PageTitle>
@@ -132,6 +133,7 @@
             try
             {
                 await JS.InvokeVoidAsync("dbExplorerAddRecent", SchemaName, ObjectName, objectType, SelectorState.Current.Name);
+                RecentlyViewedState.NotifyItemAdded();
             }
             catch { /* Non-critical; JS may not be available during pre-render */ }
         }

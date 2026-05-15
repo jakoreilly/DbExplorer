@@ -3,6 +3,7 @@
 @inject IJSRuntime JS
 @inject NavigationManager Nav
 @inject DatabaseSelectorState SelectorState
+@inject RecentlyViewedState RecentlyViewedState
 @implements IDisposable
 
 <div class="recent-section">
@@ -40,6 +41,7 @@
     protected override void OnInitialized()
     {
         SelectorState.OnChange += HandleServerChanged;
+        RecentlyViewedState.OnItemAdded += HandleItemAdded;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -73,9 +75,16 @@
         _ = InvokeAsync(LoadItemsAsync);
     }
 
+    private void HandleItemAdded()
+    {
+        if (!_jsReady) return;
+        _ = InvokeAsync(LoadItemsAsync);
+    }
+
     public void Dispose()
     {
         SelectorState.OnChange -= HandleServerChanged;
+        RecentlyViewedState.OnItemAdded -= HandleItemAdded;
     }
     private void ToggleExpanded() => _expanded = !_expanded;
 

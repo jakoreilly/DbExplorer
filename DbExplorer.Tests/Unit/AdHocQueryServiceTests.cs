@@ -136,4 +136,33 @@ public class AdHocQueryServiceTests
         Assert.Empty(result.Columns);
         Assert.Empty(result.Rows);
     }
+
+    // ── GetRecentQueriesAsync ─────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(DatabaseProvider.SqlServer)]
+    [InlineData(DatabaseProvider.MySql)]
+    [InlineData(DatabaseProvider.PostgreSql)]
+    public async Task GetRecentQueriesAsync_AllProviders_DoNotThrowValidationError(DatabaseProvider provider)
+    {
+        // The query will fail to connect (factory is mocked), but EnsureReadOnly must pass
+        // for the SELECT-based statistics queries.  A non-InvalidOperationException is
+        // acceptable here (connection failure or DbException caught internally).
+        var svc = CreateService(provider);
+        var ex = await Record.ExceptionAsync(() => svc.GetRecentQueriesAsync());
+        Assert.False(ex is InvalidOperationException,
+            $"Read-only guard incorrectly rejected GetRecentQueriesAsync for {provider}: {ex?.Message}");
+    }
+
+    [Theory]
+    [InlineData(DatabaseProvider.SqlServer)]
+    [InlineData(DatabaseProvider.MySql)]
+    [InlineData(DatabaseProvider.PostgreSql)]
+    public async Task GetActivityAsync_AllProviders_DoNotThrowValidationError(DatabaseProvider provider)
+    {
+        var svc = CreateService(provider);
+        var ex = await Record.ExceptionAsync(() => svc.GetActivityAsync());
+        Assert.False(ex is InvalidOperationException,
+            $"Read-only guard incorrectly rejected GetActivityAsync for {provider}: {ex?.Message}");
+    }
 }

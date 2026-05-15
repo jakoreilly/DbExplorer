@@ -8,21 +8,27 @@
 @inject IQueryProfiler Profiler
 @inject DatabaseSelectorState SelectorState
 @inject IOptions<ProfilerOptions> ProfilerOpts
+@inject IJSRuntime JS
+@inject ThemeState ThemeState
 @implements IDisposable
 @rendermode InteractiveServer
 
 <PageTitle>Query Profiler — DbExplorer</PageTitle>
 
-<div class="profiler-page">
+<div class="profiler-page" @ref="_profilerBody">
     <div class="profiler-page-header">
         <h2>Query Profiler</h2>
-        <span class="profiler-connection-badge">@SelectorState.Current.Provider — @SelectorState.Current.Name</span>
+        <span class="profiler-connection-badge">@SelectorState.Current.Provider — @SelectorState.Current.Name@(SelectorState.SelectedCatalog is not null ? $" / {SelectorState.SelectedCatalog}" : "")</span>
     </div>
 
     @if (ProfilerOpts.Value.EnableQueryEditor)
     {
         <div class="profiler-readonly-notice">
             Read-only mode — only <code>SELECT</code>, <code>WITH</code>, <code>SHOW</code>, <code>EXPLAIN</code>, and <code>DESCRIBE</code> statements are permitted.
+            @if (SelectorState.Current.Provider == Services.DatabaseProvider.PostgreSql && SelectorState.SelectedCatalog is not null)
+            {
+                <span>Queries run against database <strong>@SelectorState.SelectedCatalog</strong> — use <code>schema.table</code> not <code>database.table</code>.</span>
+            }
         </div>
     }
 
@@ -30,7 +36,7 @@
     @if (ProfilerOpts.Value.EnableQueryEditor)
     {
     <div class="profiler-panel @(panel1Open ? "profiler-panel--open" : "")">
-        <div class="profiler-panel-header" @onclick="() => panel1Open = !panel1Open">
+        <div class="profiler-panel-header" @onclick="ToggleQueryEditorPanel">
             <span class="profiler-panel-toggle">@(panel1Open ? "▼" : "▶")</span>
             <span>Query Editor</span>
             @if (queryResult is not null)
@@ -41,23 +47,24 @@
         @if (panel1Open)
         {
             <div class="profiler-panel-body">
-                <textarea class="profiler-query-textarea"
-                          @bind="queryText"
-                          @bind:event="oninput"
-                          @onkeydown="HandleQueryKeyDown"
-                          rows="8"
-                          spellcheck="false"
-                          placeholder="Enter SQL — Ctrl+Enter to run" />
+                @if (ProfilerOpts.Value.EnableSyntaxHighlighting)
+                {
+                    <div @ref="_cmHost" class="profiler-cm-host"></div>
+                }
+                else
+                {
+                    <textarea class="profiler-query-textarea" @bind="queryText" @bind:event="oninput" rows="8" spellcheck="false" placeholder="SELECT …"></textarea>
+                }
 
                 <div class="profiler-query-controls">
                     <button class="profiler-btn profiler-btn--primary"
                             @onclick="RunQuery"
-                            disabled="@(queryRunning || string.IsNullOrWhiteSpace(queryText))">
+                            disabled="@queryRunning">
                         @(queryRunning ? "Running…" : "▶ Run")
                     </button>
                     <button class="profiler-btn"
                             @onclick="ExplainQuery"
-                            disabled="@(queryRunning || string.IsNullOrWhiteSpace(queryText))">
+                            disabled="@queryRunning">
                         Explain
                     </button>
                     <button class="profiler-btn profiler-btn--ghost"
@@ -150,6 +157,10 @@
             {
                 <span class="profiler-panel-meta">@activityResult.Rows.Count session(s)</span>
             }
+            @if (_lastRefreshed is not null)
+            {
+                <span class="profiler-panel-meta profiler-last-refreshed">updated @_lastRefreshed.Value.ToString("HH:mm:ss")</span>
+            }
             @if (refreshInterval > 0)
             {
                 <span class="profiler-refresh-indicator">● auto @refreshInterval s</span>
@@ -162,8 +173,9 @@
                     <label>Auto-refresh:</label>
                     <select @bind="refreshInterval" @bind:after="OnRefreshIntervalChanged">
                         <option value="0">Off</option>
+                        <option value="1">1 s</option>
                         <option value="3">3 s</option>
-                        <option value="5">5 s</option>
+                        <option value="5" selected>5 s</option>
                         <option value="10">10 s</option>
                     </select>
                     <button class="profiler-btn" @onclick="LoadActivity" disabled="@activityRunning">
@@ -196,17 +208,37 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach (var row in activityResult.Rows)
+                                @foreach (var (row, idx) in activityResult.Rows.Select((r, i) => (r, i)))
                                 {
-                                    <tr>
+                                    var pid = row.TryGetValue("pid", out var pidVal) ? pidVal?.ToString() ?? idx.ToString() : idx.ToString();
+                                    var isExpanded = _expandedActivityPids.Contains(pid);
+                                    <tr class="@ActivityRowClass(row) profiler-tr--clickable @(isExpanded ? "profiler-tr--expanded" : "")"
+                                        @onclick="() => ToggleActivityRowExpand(pid)">
                                         @foreach (var col in activityResult.Columns)
                                         {
                                             var val = row.TryGetValue(col.Name, out var v) ? v : null;
-                                            <td class="@(col.Name == "query" ? "profiler-td-query" : "")">
-                                                @(val is null ? "" : val.ToString())
+                                            var text = val is null ? "" : val.ToString()!;
+                                            <td class="@(col.Name is "query" ? "profiler-td-activity-query" : "")">
+                                                @if (col.Name is "query" && !isExpanded)
+                                                {
+                                                    @TruncateSql(text, 80)
+                                                }
+                                                else
+                                                {
+                                                    @text
+                                                }
                                             </td>
                                         }
                                     </tr>
+                                    @if (isExpanded)
+                                    {
+                                        var query = row.TryGetValue("query", out var qv) ? qv?.ToString() ?? "" : "";
+                                        <tr class="profiler-tr--detail">
+                                            <td colspan="@activityResult.Columns.Count" class="profiler-td-detail">
+                                                <pre class="profiler-activity-query-full"><code class="language-sql">@query</code></pre>
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             </tbody>
                         </table>
@@ -244,6 +276,16 @@
                 }
                 else
                 {
+                    var stats = GetLogStats();
+                    <div class="profiler-stats-bar">
+                        <span class="profiler-stat"><strong>@stats.Total</strong> queries</span>
+                        <span class="profiler-stat">avg <strong>@stats.Avg.ToString("F0") ms</strong></span>
+                        <span class="profiler-stat">max <strong>@stats.Max ms</strong></span>
+                        @if (stats.Slow > 0)
+                        {
+                            <span class="profiler-stat profiler-stat--slow"><strong>@stats.Slow</strong> slow (&gt;500ms)</span>
+                        }
+                    </div>
                     <div class="profiler-table-scroll">
                         <table class="profiler-table profiler-table--log">
                             <thead>
@@ -261,14 +303,104 @@
                                     <tr>
                                         <td class="profiler-td-ts">@entry.Timestamp.ToString("HH:mm:ss.fff")</td>
                                         <td>@entry.Provider</td>
-                                        <td class="profiler-td-num">@entry.ElapsedMs ms</td>
+                                        <td class="profiler-td-num">
+                                            <span class="profiler-elapsed @ElapsedMsClass(entry.ElapsedMs)">@entry.ElapsedMs ms</span>
+                                        </td>
                                         <td class="profiler-td-num">@entry.RowCount</td>
                                         <td class="profiler-td-sql">
                                             <details>
                                                 <summary>@TruncateSql(entry.Sql, 80)</summary>
-                                                <pre class="profiler-log-sql-full">@entry.Sql</pre>
+                                                <pre class="profiler-log-sql-full"><code class="language-sql">@entry.Sql</code></pre>
                                             </details>
                                         </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    @* ── Panel 4: Recent DB Queries ───────────────────────────────────────── *@
+    <div class="profiler-panel @(panel4Open ? "profiler-panel--open" : "")">
+        <div class="profiler-panel-header" @onclick="ToggleRecentQueriesPanel">
+            <span class="profiler-panel-toggle">@(panel4Open ? "▼" : "▶")</span>
+            <span>Recent DB Queries</span>
+            @if (recentQueriesResult is not null && recentQueriesResult.Rows.Count > 0)
+            {
+                <span class="profiler-panel-meta">@recentQueriesResult.Rows.Count entr@(recentQueriesResult.Rows.Count == 1 ? "y" : "ies")</span>
+            }
+        </div>
+        @if (panel4Open)
+        {
+            <div class="profiler-panel-body">
+                <div class="profiler-log-controls">
+                    <button class="profiler-btn" @onclick="LoadRecentQueries" disabled="@recentQueriesRunning">
+                        @(recentQueriesRunning ? "Loading…" : "Refresh")
+                    </button>
+                    <span class="profiler-log-hint">
+                        Top 100 recently executed queries from the engine's statistics tables
+                        (requires <code>pg_stat_statements</code> on PostgreSQL,
+                        <code>performance_schema</code> on MySQL;
+                        always available on SQL Server via <code>sys.dm_exec_query_stats</code>).
+                    </span>
+                </div>
+
+                @if (recentQueriesError is not null)
+                {
+                    <div class="profiler-error">@recentQueriesError</div>
+                }
+                else if (recentQueriesResult is null)
+                {
+                    <div class="profiler-empty">Click <strong>Refresh</strong> to load recent query statistics.</div>
+                }
+                else if (recentQueriesResult.Warning is not null && recentQueriesResult.Rows.Count == 0)
+                {
+                    <div class="profiler-warning">⚠ @recentQueriesResult.Warning</div>
+                }
+                else if (recentQueriesResult.Rows.Count == 0)
+                {
+                    <div class="profiler-empty">No query statistics available yet.</div>
+                }
+                else
+                {
+                    @if (recentQueriesResult.Warning is not null)
+                    {
+                        <div class="profiler-warning">⚠ @recentQueriesResult.Warning</div>
+                    }
+                    <div class="profiler-table-scroll">
+                        <table class="profiler-table profiler-table--log">
+                            <thead>
+                                <tr>
+                                    @foreach (var col in recentQueriesResult.Columns)
+                                    {
+                                        <th>@col.Name</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in recentQueriesResult.Rows)
+                                {
+                                    <tr>
+                                        @foreach (var col in recentQueriesResult.Columns)
+                                        {
+                                            var val = row.TryGetValue(col.Name, out var v) ? v : null;
+                                            <td class="@(col.Name is "query" ? "profiler-td-sql" : "profiler-td-num")">
+                                                @if (col.Name is "query")
+                                                {
+                                                    <details>
+                                                        <summary>@TruncateSql(val?.ToString() ?? "", 80)</summary>
+                                                        <pre class="profiler-log-sql-full"><code class="language-sql">@(val?.ToString() ?? "")</code></pre>
+                                                    </details>
+                                                }
+                                                else
+                                                {
+                                                    @(val?.ToString() ?? "")
+                                                }
+                                            </td>
+                                        }
                                     </tr>
                                 }
                             </tbody>
@@ -285,6 +417,7 @@
     private bool panel1Open = true;
     private bool panel2Open = false;
     private bool panel3Open = false;
+    private bool panel4Open = false;
 
     // ── Panel 1: Query Editor ─────────────────────────────────────────────────
     private string queryText = "";
@@ -293,16 +426,27 @@
     private string? queryError;
     private bool queryRunning;
     private string resultTab = "results";
+    private ElementReference _cmHost;
+    private ElementReference _profilerBody;
+    private DotNetObjectReference<ProfilerPage>? _dotNetRef;
+    private bool _cmInitialized;
 
     // ── Panel 2: Live Activity ────────────────────────────────────────────────
     private QueryResult? activityResult;
     private string? activityError;
     private bool activityRunning;
-    private int refreshInterval = 0;
+    private int refreshInterval = 5;
+    private DateTime? _lastRefreshed;
+    private readonly HashSet<string> _expandedActivityPids = [];
     private CancellationTokenSource? _refreshCts;
 
     // ── Panel 3: App Query Log ────────────────────────────────────────────────
     private IReadOnlyList<ProfiledQuery>? queryLog;
+
+    // ── Panel 4: Recent DB Queries ────────────────────────────────────────────
+    private QueryResult? recentQueriesResult;
+    private string? recentQueriesError;
+    private bool recentQueriesRunning;
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     protected override void OnInitialized()
@@ -310,9 +454,43 @@
         queryLog = Profiler.GetHistory();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Initialise CodeMirror in the query editor host (once per element lifetime).
+        if (!_cmInitialized && ProfilerOpts.Value.EnableQueryEditor && ProfilerOpts.Value.EnableSyntaxHighlighting && panel1Open)
+        {
+            try
+            {
+                _dotNetRef ??= DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("initSqlEditor", _cmHost, ThemeState.IsDarkMode, _dotNetRef, queryText);
+                _cmInitialized = true;
+            }
+            catch { /* pre-render or JS unavailable */ }
+        }
+
+        // Highlight any new SQL code blocks in the page.
+        if (ProfilerOpts.Value.EnableSyntaxHighlighting)
+        {
+            try { await JS.InvokeVoidAsync("hljsHighlightNew", _profilerBody); }
+            catch { }
+        }
+    }
+
     // ── Panel 1 actions ───────────────────────────────────────────────────────
+    private void ToggleQueryEditorPanel()
+    {
+        panel1Open = !panel1Open;
+        // When the panel closes its @ref element is removed from the DOM; reset the init
+        // flag so CodeMirror is re-initialised when the panel is re-opened.
+        if (!panel1Open) _cmInitialized = false;
+    }
+
     private async Task RunQuery()
     {
+        if (ProfilerOpts.Value.EnableSyntaxHighlighting)
+        {
+            try { queryText = await JS.InvokeAsync<string>("getSqlEditorValue", _cmHost); } catch { }
+        }
         if (string.IsNullOrWhiteSpace(queryText)) return;
         queryRunning = true;
         queryError = null;
@@ -322,6 +500,8 @@
         try
         {
             queryResult = await AdHocService.ExecuteQueryAsync(queryText.Trim());
+            Profiler.Record(SelectorState.Current.Provider.ToString(), queryText.Trim(),
+                queryResult.ElapsedMs, queryResult.Rows.Count);
         }
         catch (InvalidOperationException ex)
         {
@@ -345,6 +525,10 @@
 
     private async Task ExplainQuery()
     {
+        if (ProfilerOpts.Value.EnableSyntaxHighlighting)
+        {
+            try { queryText = await JS.InvokeAsync<string>("getSqlEditorValue", _cmHost); } catch { }
+        }
         if (string.IsNullOrWhiteSpace(queryText)) return;
         queryRunning = true;
         queryError = null;
@@ -354,6 +538,8 @@
         try
         {
             explainPlan = await AdHocService.ExplainQueryAsync(queryText.Trim());
+            Profiler.Record(SelectorState.Current.Provider.ToString(),
+                $"EXPLAIN: {queryText.Trim()}", 0, 0);
         }
         catch (InvalidOperationException ex)
         {
@@ -373,26 +559,40 @@
         }
     }
 
-    private void ClearQuery()
+    private async Task ClearQuery()
     {
         queryText = "";
         queryResult = null;
         explainPlan = null;
         queryError = null;
+        if (ProfilerOpts.Value.EnableSyntaxHighlighting)
+        {
+            try { await JS.InvokeVoidAsync("setSqlEditorValue", _cmHost, ""); } catch { }
+        }
     }
 
-    private async Task HandleQueryKeyDown(KeyboardEventArgs e)
-    {
-        if (e.CtrlKey && e.Key == "Enter")
-            await RunQuery();
-    }
+    [JSInvokable]
+    public async Task TriggerRunQuery() => await RunQuery();
 
     // ── Panel 2 actions ───────────────────────────────────────────────────────
     private async Task ToggleActivityPanel()
     {
         panel2Open = !panel2Open;
         if (panel2Open && activityResult is null)
+        {
             await LoadActivity();
+            if (panel2Open && refreshInterval > 0)
+            {
+                _refreshCts = new CancellationTokenSource();
+                _ = RunRefreshLoopAsync(_refreshCts.Token);
+            }
+        }
+        else if (!panel2Open)
+        {
+            _refreshCts?.Cancel();
+            _refreshCts?.Dispose();
+            _refreshCts = null;
+        }
     }
 
     private async Task LoadActivity()
@@ -403,6 +603,7 @@
         try
         {
             activityResult = await AdHocService.GetActivityAsync();
+            _lastRefreshed = DateTime.UtcNow;
         }
         catch (Exception ex) when (ex is System.Data.Common.DbException or TimeoutException)
         {
@@ -480,7 +681,83 @@
         queryLog = [];
     }
 
+    // ── Panel 4 actions ───────────────────────────────────────────────────────
+    private async Task ToggleRecentQueriesPanel()
+    {
+        panel4Open = !panel4Open;
+        if (panel4Open && recentQueriesResult is null)
+            await LoadRecentQueries();
+    }
+
+    private async Task LoadRecentQueries()
+    {
+        recentQueriesRunning = true;
+        recentQueriesError = null;
+        StateHasChanged();
+        try
+        {
+            recentQueriesResult = await AdHocService.GetRecentQueriesAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            recentQueriesError = ex.Message;
+        }
+        catch (OperationCanceledException)
+        {
+            // Silently swallow cancellation (panel closed / navigation).
+        }
+        catch (Exception ex) when (ex is System.Data.Common.DbException or TimeoutException)
+        {
+            recentQueriesError = ex.Message;
+        }
+        catch
+        {
+            recentQueriesError = "Failed to load recent queries. Check the server log.";
+        }
+        finally
+        {
+            recentQueriesRunning = false;
+            StateHasChanged();
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+    private void ToggleActivityRowExpand(string pid)
+    {
+        if (!_expandedActivityPids.Remove(pid))
+            _expandedActivityPids.Add(pid);
+    }
+
+    private static string ActivityRowClass(IReadOnlyDictionary<string, object?> row)
+    {
+        if (row.TryGetValue("duration_sec", out var val) &&
+            val is not null &&
+            decimal.TryParse(val.ToString(), System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var sec))
+        {
+            if (sec >= 30) return "profiler-tr--danger";
+            if (sec >= 5)  return "profiler-tr--warning";
+        }
+        return "";
+    }
+
+    private static string ElapsedMsClass(long ms)
+    {
+        if (ms < 100) return "profiler-elapsed--fast";
+        if (ms < 500) return "profiler-elapsed--medium";
+        return "profiler-elapsed--slow";
+    }
+
+    private (int Total, double Avg, long Max, int Slow) GetLogStats()
+    {
+        if (queryLog is null || queryLog.Count == 0) return (0, 0, 0, 0);
+        return (
+            queryLog.Count,
+            queryLog.Average(q => (double)q.ElapsedMs),
+            queryLog.Max(q => q.ElapsedMs),
+            queryLog.Count(q => q.ElapsedMs > 500));
+    }
+
     private static string TruncateSql(string sql, int maxLen)
     {
         var single = sql.ReplaceLineEndings(" ").Trim();
@@ -491,5 +768,6 @@
     {
         _refreshCts?.Cancel();
         _refreshCts?.Dispose();
+        _dotNetRef?.Dispose();
     }
 }

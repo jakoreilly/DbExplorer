@@ -1,4 +1,7 @@
 @using static Microsoft.AspNetCore.Components.Web.RenderMode
+@using DbExplorer.Options
+@using Microsoft.Extensions.Options
+@inject IOptions<ProfilerOptions> ProfilerOpts
 
 <!DOCTYPE html>
 <html lang="en">
@@ -17,15 +20,46 @@
         } catch (e) { }
     </script>
     <link rel="stylesheet" href="css/app.css" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" class="hljs-theme-light" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" class="hljs-theme-dark" disabled />
+    <!-- SRI hashes computed against cdnjs.cloudflare.com at the library versions pinned below.
+         If you upgrade highlight.js or CodeMirror, recompute each hash with PowerShell:
+           $b = (Invoke-WebRequest CDN_URL).Content
+           "sha384-" + [Convert]::ToBase64String([SHA384]::Create().ComputeHash($b)) -->
+    @if (ProfilerOpts.Value.EnableSyntaxHighlighting)
+    {
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css"
+              class="hljs-theme-light"
+              integrity="sha384-eFTL69TLRZTkNfYZOLM+G04821K1qZao/4QLJbet1pP4tcF+fdXq/9CdqAbWRl/L"
+              crossorigin="anonymous" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css"
+              class="hljs-theme-dark"
+              integrity="sha384-wH75j6z1lH97ZOpMOInqhgKzFkAInZPPSPlZpYKYTOqsaizPvhQZmAtLcPKXpLyH"
+              crossorigin="anonymous" disabled />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css"
+              integrity="sha384-zaeBlB/vwYsDRSlFajnDd7OydJ0cWk+c2OWybl3eSUf6hW2EbhlCsQPqKr3gkznT"
+              crossorigin="anonymous" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/theme/dracula.min.css"
+              class="cm-theme-dark"
+              integrity="sha384-ccdJwIIg/K0Ab6aXF4MPACh7ckk61tvQFTrfkhXZEALgAETURNZIAuQLcS/aPbrM"
+              crossorigin="anonymous" />
+    }
     <HeadOutlet @rendermode="InteractiveServer" />
 </head>
 
 <body>
     <Routes @rendermode="InteractiveServer" />
     <script src="_framework/blazor.server.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    @if (ProfilerOpts.Value.EnableSyntaxHighlighting)
+    {
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"
+                integrity="sha384-F/bZzf7p3Joyp5psL90p/p89AZJsndkSoGwRpXcZhleCWhd8SnRuoYo4d0yirjJp"
+                crossorigin="anonymous"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"
+                integrity="sha384-BEgQlz0fN4eG0n4jipmUe+nOg65hPY7L0E/lPVRaOPdzAfLPGEbXnpAodHtSnlwM"
+                crossorigin="anonymous"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/mode/sql/sql.min.js"
+                integrity="sha384-HxXmA1hLc56V6Ja4yfcCwAprmbnS4tuvKYS0qKG3t6oxOFMflcnYq5fOnt6wVCda"
+                crossorigin="anonymous"></script>
+    }
     <script>
         // Recently-viewed objects persisted in localStorage (max 10 entries per server)
         window.dbExplorerAddRecent = function (schema, name, type, server) {
@@ -56,6 +90,22 @@
             try {
                 localStorage.setItem('dbexplorer_theme_dark', isDark ? '1' : '0');
                 document.documentElement.classList.toggle('theme-dark', isDark);
+                // Toggle hljs stylesheets
+                var hljsLight = document.querySelector('.hljs-theme-light');
+                var hljsDark = document.querySelector('.hljs-theme-dark');
+                if (hljsLight) hljsLight.disabled = isDark;
+                if (hljsDark) hljsDark.disabled = !isDark;
+                // Re-highlight already-highlighted elements with the new theme
+                if (window.hljs) {
+                    document.querySelectorAll('[data-highlighted]').forEach(function (el) {
+                        delete el.dataset.highlighted;
+                        hljs.highlightElement(el);
+                    });
+                }
+                // Update all CodeMirror editor themes
+                document.querySelectorAll('.CodeMirror').forEach(function (wrap) {
+                    if (wrap.CodeMirror) wrap.CodeMirror.setOption('theme', isDark ? 'dracula' : 'default');
+                });
             }
             catch (e) { }
         };
@@ -66,6 +116,39 @@
         // Trigger highlight.js on a container element
         window.hljsHighlight = function (el) {
             if (window.hljs && el) hljs.highlightElement(el);
+        };
+        // Highlight all unhighlighted code.language-sql elements inside a container
+        window.hljsHighlightNew = function (container) {
+            if (!window.hljs || !container) return;
+            container.querySelectorAll('code.language-sql:not([data-highlighted])').forEach(function (el) {
+                hljs.highlightElement(el);
+            });
+        };
+        // Initialise a CodeMirror SQL editor inside host element
+        window.initSqlEditor = function (host, isDark, dotNetRef, initialValue) {
+            if (!host || !window.CodeMirror || host._cm) return;
+            var cm = CodeMirror(host, {
+                mode: 'text/x-sql',
+                theme: isDark ? 'dracula' : 'default',
+                lineNumbers: true,
+                tabSize: 2,
+                indentWithTabs: false,
+                lineWrapping: true,
+                extraKeys: {
+                    'Ctrl-Enter': function () { dotNetRef.invokeMethodAsync('TriggerRunQuery'); }
+                }
+            });
+            host._cm = cm;
+            if (initialValue) cm.setValue(initialValue);
+        };
+        window.getSqlEditorValue = function (host) {
+            return host && host._cm ? host._cm.getValue() : '';
+        };
+        window.setSqlEditorValue = function (host, value) {
+            if (host && host._cm) host._cm.setValue(value || '');
+        };
+        window.disposeSqlEditor = function (host) {
+            if (host && host._cm) host._cm = null;
         };
         // Copy text to clipboard, returns true on success
         window.copyToClipboard = async function (text) {

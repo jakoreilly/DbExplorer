@@ -14,4 +14,14 @@ public sealed class ProfilerOptions
     /// but not ad-hoc querying).
     /// </summary>
     public bool EnableQueryEditor { get; init; } = true;
+
+    /// <summary>
+    /// When <c>true</c> (the default), syntax highlighting libraries (CodeMirror and highlight.js)
+    /// are loaded from the Cloudflare CDN. All CDN assets are protected by Subresource Integrity (SRI)
+    /// hashes so any tampering causes the browser to reject the resource.
+    /// Set to <c>false</c> in air-gapped environments, under strict CSP policies, or where
+    /// external network requests must be avoided. The profiler remains fully functional
+    /// without highlighting; the query editor falls back to a plain textarea.
+    /// </summary>
+    public bool EnableSyntaxHighlighting { get; init; } = true;
 }

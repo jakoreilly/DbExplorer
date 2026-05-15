@@ -9,8 +9,8 @@
     --border: #e2e8f0;
     --hover-bg: #eff6ff;
     --row-hover: #f8faff;
-    --code-bg: #1e293b;
-    --code-text: #e2e8f0;
+    --code-bg: #f1f5f9;
+    --code-text: #1e293b;
     --error-bg: #fef2f2;
     --error-border: #fca5a5;
     --error-text: #dc2626;
@@ -205,18 +205,22 @@ tr:hover td { background: var(--row-hover); }
 
 .profiler-panel-body { padding: 1rem; border-top: 1px solid var(--border); }
 
-.profiler-query-textarea {
-    width: 100%;
-    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
-    font-size: 0.85rem;
-    padding: 0.65rem 0.75rem;
+.profiler-cm-host {
     border: 1px solid var(--border);
     border-radius: 6px;
-    background: var(--code-bg);
-    color: var(--code-text);
-    resize: vertical;
-    line-height: 1.5;
     margin-bottom: 0.75rem;
+    overflow: hidden;
+}
+.profiler-cm-host:focus-within { outline: 2px solid var(--primary); outline-offset: -1px; }
+.profiler-cm-host .CodeMirror { height: auto !important; min-height: 150px; font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace !important; font-size: 0.85rem !important; line-height: 1.5 !important; }
+.profiler-cm-host .CodeMirror-scroll { min-height: 150px; }
+
+.profiler-query-textarea {
+    width: 100%; box-sizing: border-box; resize: vertical;
+    padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--surface-elevated); color: var(--text);
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 0.85rem; line-height: 1.5; margin-bottom: 0.75rem;
 }
 .profiler-query-textarea:focus { outline: 2px solid var(--primary); outline-offset: -1px; }
 
@@ -274,3 +278,43 @@ html.theme-dark .profiler-warning,
 }
 html.theme-dark .profiler-readonly-notice,
 .layout.theme-dark .profiler-readonly-notice { background: #1e3a5f; border-color: #2563eb; color: #93c5fd; }
+
+/* ── Profiler: elapsed time badges ──────────────────────────────────────────── */
+.profiler-elapsed { display: inline-block; padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.78rem; font-variant-numeric: tabular-nums; font-weight: 600; }
+.profiler-elapsed--fast   { background: #dcfce7; color: #15803d; }
+.profiler-elapsed--medium { background: #fef9c3; color: #92400e; }
+.profiler-elapsed--slow   { background: #fee2e2; color: #991b1b; }
+html.theme-dark .profiler-elapsed--fast,
+.layout.theme-dark .profiler-elapsed--fast   { background: #14532d; color: #86efac; }
+html.theme-dark .profiler-elapsed--medium,
+.layout.theme-dark .profiler-elapsed--medium { background: #451a03; color: #fde68a; }
+html.theme-dark .profiler-elapsed--slow,
+.layout.theme-dark .profiler-elapsed--slow   { background: #450a0a; color: #fca5a5; }
+
+/* ── Profiler: stats bar ─────────────────────────────────────────────────────── */
+.profiler-stats-bar { display: flex; gap: 1.25rem; flex-wrap: wrap; padding: 0.5rem 0.75rem; margin-bottom: 0.75rem; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 6px; font-size: 0.82rem; }
+.profiler-stat { color: var(--muted); }
+.profiler-stat strong { color: var(--text); }
+.profiler-stat--slow strong { color: #dc2626; }
+html.theme-dark .profiler-stat--slow strong,
+.layout.theme-dark .profiler-stat--slow strong { color: #f87171; }
+
+/* ── Profiler: last-refreshed indicator ─────────────────────────────────────── */
+.profiler-last-refreshed { font-family: monospace; font-size: 0.77rem; }
+
+/* ── Profiler: activity row highlights (long-running) ───────────────────────── */
+.profiler-tr--warning td { background: #fefce8 !important; }
+.profiler-tr--danger  td { background: #fff1f2 !important; }
+html.theme-dark .profiler-tr--warning td,
+.layout.theme-dark .profiler-tr--warning td { background: #2d2200 !important; }
+html.theme-dark .profiler-tr--danger td,
+.layout.theme-dark .profiler-tr--danger td  { background: #2d0a0a !important; }
+.profiler-tr--expanded td { outline: 2px solid var(--primary); outline-offset: -1px; }
+.profiler-tr--clickable { cursor: pointer; }
+
+/* ── Profiler: activity row expansion ───────────────────────────────────────── */
+.profiler-td-activity-query { max-width: 300px; font-family: monospace; font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profiler-tr--expanded .profiler-td-activity-query { white-space: normal; word-break: break-word; }
+.profiler-tr--detail td { padding: 0 !important; border-bottom: 2px solid var(--primary); }
+.profiler-td-detail { padding: 0 !important; }
+.profiler-activity-query-full { margin: 0; padding: 0.65rem 1rem; font-size: 0.78rem; color: var(--code-text); background: var(--code-bg); white-space: pre-wrap; word-break: break-word; line-height: 1.5; }

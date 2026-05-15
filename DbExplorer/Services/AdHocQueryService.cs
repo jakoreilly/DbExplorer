@@ -147,7 +147,7 @@ public sealed class AdHocQueryService(
     }
 
     /// <summary>
-    /// Returns a snapshot of currently executing queries on the database server.
+    /// Returns a snapshot of all current sessions (including idle/sleeping) on the server.
     /// </summary>
     public Task<QueryResult> GetActivityAsync(CancellationToken ct = default)
     {
@@ -155,55 +155,122 @@ public sealed class AdHocQueryService(
         {
             DatabaseProvider.PostgreSql =>
                 """
-                SELECT pid::text       AS pid,
-                       usename         AS username,
-                       datname         AS database,
-                       state           AS state,
-                       wait_event_type AS wait_event_type,
-                       wait_event      AS wait_event,
+                SELECT pid::text                AS pid,
+                       usename                  AS username,
+                       datname                  AS database,
+                       state                    AS state,
+                       wait_event_type          AS wait_event_type,
+                       wait_event               AS wait_event,
                        COALESCE(EXTRACT(EPOCH FROM (now() - query_start))::numeric(10,1)::text, '')
-                                       AS duration_sec,
-                       left(query, 300) AS query
+                                                AS duration_sec,
+                       backend_type             AS backend_type,
+                       left(query, 500)         AS query
                 FROM   pg_stat_activity
-                WHERE  state IS NOT NULL
-                  AND  query IS NOT NULL
-                  AND  query <> '<idle>'
-                ORDER  BY query_start DESC NULLS LAST
+                WHERE  pid != pg_backend_pid()
+                  AND  backend_type = 'client backend'
+                ORDER  BY state, query_start DESC NULLS LAST
                 """,
             DatabaseProvider.SqlServer =>
                 """
-                SELECT CAST(r.session_id AS VARCHAR(10))              AS pid,
-                       s.login_name                                   AS username,
-                       DB_NAME(r.database_id)                        AS [database],
-                       r.status                                       AS state,
-                       ISNULL(r.wait_type, '')                        AS wait_type,
-                       CAST(r.total_elapsed_time / 1000.0 AS DECIMAL(10,1)) AS duration_sec,
-                       LEFT(t.text, 300)                              AS query
-                FROM   sys.dm_exec_requests  r
-                JOIN   sys.dm_exec_sessions  s ON r.session_id = s.session_id
-                CROSS  APPLY sys.dm_exec_sql_text(r.sql_handle) t
-                WHERE  r.session_id <> @@SPID
-                ORDER  BY r.total_elapsed_time DESC
+                SELECT CAST(s.session_id AS VARCHAR(10))                          AS pid,
+                       s.login_name                                               AS username,
+                       DB_NAME(s.database_id)                                    AS [database],
+                       ISNULL(r.status, s.status)                                AS state,
+                       ISNULL(r.wait_type, '')                                   AS wait_type,
+                       CAST(ISNULL(r.total_elapsed_time, 0) / 1000.0 AS DECIMAL(10,1)) AS duration_sec,
+                       ISNULL(LEFT(t.text, 500), '')                             AS query
+                FROM   sys.dm_exec_sessions  s
+                LEFT   JOIN sys.dm_exec_requests  r ON s.session_id = r.session_id
+                OUTER  APPLY sys.dm_exec_sql_text(r.sql_handle)                  t
+                WHERE  s.is_user_process = 1
+                  AND  s.session_id <> @@SPID
+                ORDER  BY duration_sec DESC
                 """,
             DatabaseProvider.MySql =>
                 """
-                SELECT CAST(id AS CHAR)  AS pid,
-                       user              AS username,
-                       db               AS `database`,
-                       state            AS state,
-                       command          AS command,
+                SELECT CAST(id AS CHAR)    AS pid,
+                       user               AS username,
+                       db                AS `database`,
+                       state             AS state,
+                       command           AS command,
                        CAST(time AS CHAR) AS duration_sec,
-                       LEFT(info, 300)  AS query
+                       LEFT(info, 500)   AS query
                 FROM   information_schema.PROCESSLIST
-                WHERE  command <> 'Sleep'
+                WHERE  id <> CONNECTION_ID()
                 ORDER  BY time DESC
                 """,
             _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
         };
 
-        // Activity queries are internal system SELECTs — route through ExecuteQueryAsync.
-        // EnsureReadOnly will pass them since they start with SELECT.
         return ExecuteQueryAsync(sql, maxRows: 200, ct);
+    }
+
+    /// <summary>
+    /// Returns recently executed queries from provider-specific statistics views.
+    /// Returns a <see cref="QueryResult"/> with <see cref="QueryResult.Warning"/> set when
+    /// the required feature (pg_stat_statements, performance_schema) is unavailable.
+    /// </summary>
+    public async Task<QueryResult> GetRecentQueriesAsync(CancellationToken ct = default)
+    {
+        var sql = factory.Provider switch
+        {
+            DatabaseProvider.PostgreSql =>
+                """
+                SELECT query,
+                       calls                                          AS executions,
+                       CAST(total_exec_time / calls AS DECIMAL(10,2)) AS avg_ms,
+                       CAST(max_exec_time           AS DECIMAL(10,2)) AS max_ms,
+                       rows
+                FROM   pg_stat_statements
+                WHERE  query NOT LIKE '%pg_stat_statements%'
+                ORDER  BY last_exec DESC NULLS LAST
+                LIMIT  100
+                """,
+            DatabaseProvider.SqlServer =>
+                """
+                SELECT TOP 100
+                       CAST(qs.execution_count AS VARCHAR)                                    AS executions,
+                       CAST(qs.total_elapsed_time / qs.execution_count / 1000.0 AS DECIMAL(10,1)) AS avg_ms,
+                       CAST(qs.max_elapsed_time / 1000.0                         AS DECIMAL(10,1)) AS max_ms,
+                       CONVERT(VARCHAR(23), qs.last_execution_time, 121)                     AS last_executed,
+                       LEFT(t.text, 500)                                                      AS query
+                FROM   sys.dm_exec_query_stats   qs
+                CROSS  APPLY sys.dm_exec_sql_text(qs.sql_handle) t
+                ORDER  BY qs.last_execution_time DESC
+                """,
+            DatabaseProvider.MySql =>
+                """
+                SELECT LEFT(DIGEST_TEXT, 500)                                              AS query,
+                       COUNT_STAR                                                           AS executions,
+                       CAST(AVG_TIMER_WAIT / 1000000000.0 AS DECIMAL(10,3))               AS avg_ms,
+                       CAST(MAX_TIMER_WAIT / 1000000000.0 AS DECIMAL(10,3))               AS max_ms,
+                       DATE_FORMAT(LAST_SEEN, '%Y-%m-%d %H:%i:%s')                        AS last_executed
+                FROM   performance_schema.events_statements_summary_by_digest
+                WHERE  DIGEST_TEXT IS NOT NULL
+                ORDER  BY LAST_SEEN DESC
+                LIMIT  100
+                """,
+            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+        };
+
+        try
+        {
+            return await ExecuteQueryAsync(sql, maxRows: 100, ct);
+        }
+        catch (System.Data.Common.DbException ex)
+        {
+            // Surface a helpful message when the required feature is not enabled.
+            var hint = factory.Provider switch
+            {
+                DatabaseProvider.PostgreSql =>
+                    "Requires the pg_stat_statements extension. Enable it with: CREATE EXTENSION pg_stat_statements;",
+                DatabaseProvider.MySql =>
+                    "Requires performance_schema to be enabled on the server.",
+                _ => ex.Message
+            };
+            logger.LogWarning(ex, "GetRecentQueriesAsync unavailable for {Provider}", factory.Provider);
+            return new QueryResult([], [], 0, hint);
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

@@ -46,7 +46,14 @@ public interface IAdHocQueryService
 {
     Task<QueryResult> ExecuteQueryAsync(string sql, int maxRows = 1000, CancellationToken ct = default);
     Task<string> ExplainQueryAsync(string sql, CancellationToken ct = default);
+    /// <summary>Returns a snapshot of all current sessions (including idle) on the server.</summary>
     Task<QueryResult> GetActivityAsync(CancellationToken ct = default);
+    /// <summary>
+    /// Returns recently executed queries from the database engine's statistics tables.
+    /// Returns a result with a <see cref="QueryResult.Warning"/> message if the required
+    /// feature (e.g. pg_stat_statements, performance_schema) is unavailable.
+    /// </summary>
+    Task<QueryResult> GetRecentQueriesAsync(CancellationToken ct = default);
 }
 
 public interface IQueryProfiler
