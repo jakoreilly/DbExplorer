@@ -62,3 +62,12 @@ public interface IQueryProfiler
     IReadOnlyList<ProfiledQuery> GetHistory();
     void Clear();
 }
+
+public interface IQueryBuilderService
+{
+    /// <summary>
+    /// Compiles a <see cref="QueryGraph"/> to provider-correct SQL using SqlKata.
+    /// Returns the SQL string and the ordered list of parameter bindings.
+    /// </summary>
+    (string Sql, IReadOnlyList<object?> Bindings) Compile(QueryGraph graph);
+}

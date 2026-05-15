@@ -1,0 +1,727 @@
+@page "/query-builder"
+@using DbExplorer.Core.Interfaces
+@using DbExplorer.Core.Models
+@using DbExplorer.Options
+@using DbExplorer.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.Extensions.Options
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@inject IMetadataService Metadata
+@inject IQueryBuilderService QueryBuilder
+@inject IAdHocQueryService AdHocService
+@inject IQueryProfiler Profiler
+@inject DatabaseSelectorState SelectorState
+@inject IOptions<QueryBuilderOptions> QBOpts
+@inject IJSRuntime JS
+@attribute [Authorize]
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Query Builder — DbExplorer</PageTitle>
+
+@if (!QBOpts.Value.Enabled)
+{
+    <div class="profiler-error">The Query Builder is disabled. Set <code>QueryBuilder:Enabled = true</code> in appsettings.json to enable it.</div>
+    return;
+}
+
+<div class="profiler-page">
+    <div class="profiler-page-header">
+        <h2>Query Builder</h2>
+        <span class="profiler-connection-badge">
+            @SelectorState.Current.Provider — @SelectorState.Current.Name@(SelectorState.SelectedCatalog is not null ? $" / {SelectorState.SelectedCatalog}" : "")
+        </span>
+    </div>
+
+    <div class="profiler-readonly-notice">
+        Read-only — only <code>SELECT</code> queries are generated. Column and table names are loaded from live schema metadata.
+        @if (SelectorState.Current.Provider == DatabaseProvider.PostgreSql && SelectorState.SelectedCatalog is not null)
+        {
+            <span>Querying database <strong>@SelectorState.SelectedCatalog</strong> — use <code>schema.table</code> not <code>database.table</code>.</span>
+        }
+    </div>
+
+    @* ── Panel 1: Base Table ──────────────────────────────────────────────── *@
+    <div class="profiler-panel @(_panel1Open ? "profiler-panel--open" : "")">
+        <div class="profiler-panel-header" @onclick="() => _panel1Open = !_panel1Open">
+            <span class="profiler-panel-toggle">@(_panel1Open ? "▼" : "▶")</span>
+            <span>1. Base Table</span>
+            @if (_selectedTable is not null)
+            {
+                <span class="profiler-panel-meta">@_selectedSchema.@_selectedTable (@_selectedColumnNames.Count col(s) selected)</span>
+            }
+        </div>
+        @if (_panel1Open)
+        {
+            <div class="profiler-panel-body">
+                <div class="qb-row">
+                    <label class="qb-label">Schema</label>
+                    @if (_schemas.Count == 0)
+                    {
+                        <span class="qb-hint">Loading…</span>
+                    }
+                    else
+                    {
+                        <select class="qb-select" @bind="_selectedSchema" @bind:after="OnSchemaChangedAsync">
+                            <option value="">— select schema —</option>
+                            @foreach (var s in _schemas)
+                            {
+                                <option value="@s.SchemaName">@s.SchemaName</option>
+                            }
+                        </select>
+                    }
+
+                    <label class="qb-label">Table / View</label>
+                    @if (_isLoadingTables)
+                    {
+                        <span class="qb-hint">Loading…</span>
+                    }
+                    else
+                    {
+                        <select class="qb-select" @bind="_selectedTable" @bind:after="OnTableChangedAsync" disabled="@(!_tables.Any())">
+                            <option value="">— select table —</option>
+                            @foreach (var t in _tables)
+                            {
+                                <option value="@t.ObjectName">@t.ObjectName</option>
+                            }
+                        </select>
+                    }
+                </div>
+
+                @if (_isLoadingCols)
+                {
+                    <p class="qb-hint" style="margin-top:0.5rem">Loading columns…</p>
+                }
+                else if (_columns.Count > 0)
+                {
+                    <div class="qb-col-toolbar">
+                        <button class="profiler-btn" @onclick="SelectAllColumns">All</button>
+                        <button class="profiler-btn" @onclick="SelectNoColumns">None</button>
+                        <span class="qb-hint">@_selectedColumnNames.Count / @_columns.Count selected</span>
+                    </div>
+                    <div class="qb-col-grid">
+                        @foreach (var col in _columns)
+                        {
+                            <label class="qb-col-label @(col.IsPrimaryKey ? "qb-col--pk" : "")">
+                                <input type="checkbox"
+                                       checked="@_selectedColumnNames.Contains(col.ColumnName)"
+                                       @onchange="e => ToggleColumn(col.ColumnName, (bool)(e.Value ?? false))" />
+                                <span class="qb-col-name">@col.ColumnName</span>
+                                <span class="qb-col-type">@col.DataType</span>
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    @* ── Panel 2: JOINs ───────────────────────────────────────────────────── *@
+    <div class="profiler-panel @(_panel2Open ? "profiler-panel--open" : "")">
+        <div class="profiler-panel-header" @onclick="() => _panel2Open = !_panel2Open">
+            <span class="profiler-panel-toggle">@(_panel2Open ? "▼" : "▶")</span>
+            <span>2. JOINs</span>
+            @if (_joins.Count > 0)
+            {
+                <span class="profiler-panel-meta">@_joins.Count join(s)</span>
+            }
+        </div>
+        @if (_panel2Open)
+        {
+            <div class="profiler-panel-body">
+                @if (_selectedTable is null)
+                {
+                    <p class="qb-hint">Select a base table first.</p>
+                }
+                else
+                {
+                    @foreach (var join in _joins)
+                    {
+                        <div class="qb-join-row" @key="join.Id">
+                            <select class="qb-select qb-select--sm" @bind="join.JoinType" @bind:after="Recompile">
+                                @foreach (var jt in Enum.GetValues<JoinType>())
+                                {
+                                    <option value="@jt">@jt.ToString().ToUpperInvariant() JOIN</option>
+                                }
+                            </select>
+                            <span class="qb-hint">t0.</span>
+                            <select class="qb-select qb-select--sm" @bind="join.SourceColumn" @bind:after="Recompile">
+                                <option value="">— col —</option>
+                                @foreach (var col in _columns)
+                                {
+                                    <option value="@col.ColumnName">@col.ColumnName</option>
+                                }
+                            </select>
+                            <span class="qb-hint">=</span>
+                            <select class="qb-select qb-select--sm" @bind="join.TargetSchema" @bind:after="() => OnJoinSchemaChangedAsync(join)">
+                                <option value="">— schema —</option>
+                                @foreach (var s in _schemas)
+                                {
+                                    <option value="@s.SchemaName">@s.SchemaName</option>
+                                }
+                            </select>
+                            <select class="qb-select qb-select--sm" @bind="join.TargetTable" @bind:after="() => OnJoinTableChangedAsync(join)" disabled="@(string.IsNullOrEmpty(join.TargetSchema) || join.IsLoadingTargetTables)">
+                                <option value="">— table —</option>
+                                @foreach (var t in join.TargetTables)
+                                {
+                                    <option value="@t.ObjectName">@t.ObjectName</option>
+                                }
+                            </select>
+                            <span class="qb-hint">.</span>
+                            @if (join.IsLoadingTargetCols)
+                            {
+                                <span class="qb-hint">Loading…</span>
+                            }
+                            else
+                            {
+                                <select class="qb-select qb-select--sm" @bind="join.TargetColumn" @bind:after="Recompile" disabled="@(!join.TargetColumns.Any())">
+                                    <option value="">— col —</option>
+                                    @foreach (var col in join.TargetColumns)
+                                    {
+                                        <option value="@col.ColumnName">@col.ColumnName</option>
+                                    }
+                                </select>
+                            }
+                            <button class="profiler-btn profiler-btn--ghost qb-remove-btn" @onclick="() => RemoveJoin(join)">✕</button>
+                        </div>
+                    }
+                    <button class="profiler-btn" @onclick="AddJoin">+ Add JOIN</button>
+                }
+            </div>
+        }
+    </div>
+
+    @* ── Panel 3: WHERE Filters ───────────────────────────────────────────── *@
+    <div class="profiler-panel @(_panel3Open ? "profiler-panel--open" : "")">
+        <div class="profiler-panel-header" @onclick="() => _panel3Open = !_panel3Open">
+            <span class="profiler-panel-toggle">@(_panel3Open ? "▼" : "▶")</span>
+            <span>3. WHERE Filters</span>
+            @if (_filters.Count > 0)
+            {
+                <span class="profiler-panel-meta">@_filters.Count filter(s)</span>
+            }
+        </div>
+        @if (_panel3Open)
+        {
+            <div class="profiler-panel-body">
+                @if (_selectedTable is null)
+                {
+                    <p class="qb-hint">Select a base table first.</p>
+                }
+                else
+                {
+                    @foreach (var filter in _filters)
+                    {
+                        var needsValue = filter.Operator is not (FilterOperator.IsNull or FilterOperator.IsNotNull);
+                        <div class="qb-filter-row" @key="filter.Id">
+                            <select class="qb-select qb-select--sm" @bind="filter.TableNodeId" @bind:after="Recompile">
+                                @foreach (var (nodeId, cols) in GetAllTableColumns())
+                                {
+                                    <optgroup label="@nodeId">
+                                        @foreach (var col in cols)
+                                        {
+                                            <option value="@nodeId|@col.ColumnName">@nodeId.@col.ColumnName</option>
+                                        }
+                                    </optgroup>
+                                }
+                            </select>
+                            <select class="qb-select qb-select--sm" @bind="filter.Operator" @bind:after="Recompile">
+                                @foreach (var op in Enum.GetValues<FilterOperator>())
+                                {
+                                    <option value="@op">@OperatorLabel(op)</option>
+                                }
+                            </select>
+                            @if (needsValue)
+                            {
+                                <input class="qb-input" type="text" placeholder="value" @bind="filter.Value" @bind:event="oninput" @bind:after="Recompile" />
+                            }
+                            <button class="profiler-btn profiler-btn--ghost qb-remove-btn" @onclick="() => RemoveFilter(filter)">✕</button>
+                        </div>
+                    }
+                    <button class="profiler-btn" @onclick="AddFilter">+ Add Filter</button>
+                }
+            </div>
+        }
+    </div>
+
+    @* ── Panel 4: Options ─────────────────────────────────────────────────── *@
+    <div class="profiler-panel @(_panel4Open ? "profiler-panel--open" : "")">
+        <div class="profiler-panel-header" @onclick="() => _panel4Open = !_panel4Open">
+            <span class="profiler-panel-toggle">@(_panel4Open ? "▼" : "▶")</span>
+            <span>4. Options</span>
+        </div>
+        @if (_panel4Open)
+        {
+            <div class="profiler-panel-body">
+                <div class="qb-row">
+                    <label class="qb-label">Row limit</label>
+                    <input class="qb-input qb-input--sm" type="number" min="1" max="10000" @bind="_rowLimit" @bind:event="oninput" @bind:after="Recompile" />
+                </div>
+            </div>
+        }
+    </div>
+
+    @* ── SQL Preview ──────────────────────────────────────────────────────── *@
+    <div class="qb-sql-preview">
+        <div class="qb-sql-preview-header">
+            <span>Generated SQL</span>
+            <div class="qb-sql-actions">
+                <button class="profiler-btn" @onclick="CopySqlAsync">@_copiedLabel</button>
+                <button class="profiler-btn profiler-btn--primary" disabled="@(_isRunning || _selectedTable is null)"
+                        @onclick="RunQueryAsync">
+                    @(_isRunning ? "Running…" : "▶ Run Query")
+                </button>
+            </div>
+        </div>
+        <div class="profiler-plan">@_compiledSql</div>
+    </div>
+
+    @* ── Results ──────────────────────────────────────────────────────────── *@
+    @if (_queryError is not null)
+    {
+        <div class="profiler-error" style="margin-top:0.75rem">@_queryError</div>
+    }
+    @if (_queryResult is not null)
+    {
+        <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+            <div class="profiler-panel-header" style="cursor:default">
+                <span>Results</span>
+                <span class="profiler-panel-meta">@_queryResult.Rows.Count row(s) · @_queryResult.ElapsedMs ms</span>
+            </div>
+            <div class="profiler-panel-body" style="padding:0">
+                @if (_queryResult.Warning is not null)
+                {
+                    <div class="profiler-warning" style="margin:0.75rem 1rem 0">@_queryResult.Warning</div>
+                }
+                @if (_queryResult.Rows.Count == 0)
+                {
+                    <p class="profiler-empty">Query returned no rows.</p>
+                }
+                else
+                {
+                    <div class="profiler-table-scroll">
+                        <table class="profiler-table">
+                            <thead>
+                                <tr>
+                                    @foreach (var col in _queryResult.Columns)
+                                    {
+                                        <th>@col.Name</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in _queryResult.Rows)
+                                {
+                                    <tr>
+                                        @foreach (var col in _queryResult.Columns)
+                                        {
+                                            <td>@(row.TryGetValue(col.Name, out var v) ? v?.ToString() ?? "" : "")</td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // ── Mutable row state (not immutable records so Blazor can bind) ──────────
+
+    private sealed class JoinRowState
+    {
+        public Guid Id { get; } = Guid.NewGuid();
+        public JoinType JoinType { get; set; } = JoinType.Inner;
+        public string SourceColumn { get; set; } = "";
+        public string TargetSchema { get; set; } = "";
+        /// <summary>Node alias for this join table, e.g. "t1".</summary>
+        public string NodeId { get; set; } = "";
+        public List<DatabaseObjectInfo> TargetTables { get; set; } = new();
+        public string TargetTable { get; set; } = "";
+        public List<ColumnInfo> TargetColumns { get; set; } = new();
+        public string TargetColumn { get; set; } = "";
+        public bool IsLoadingTargetTables { get; set; }
+        public bool IsLoadingTargetCols { get; set; }
+    }
+
+    private sealed class FilterRowState
+    {
+        public Guid Id { get; } = Guid.NewGuid();
+        /// <summary>Encoded as "nodeId|columnName" for binding to a single &lt;select&gt;.</summary>
+        public string TableNodeId { get; set; } = "";
+        public FilterOperator Operator { get; set; } = FilterOperator.Equals;
+        public string Value { get; set; } = "";
+    }
+
+    // ── Page state ────────────────────────────────────────────────────────────
+
+    private List<SchemaInfo> _schemas = new();
+    private string _selectedSchema = "";
+    private List<DatabaseObjectInfo> _tables = new();
+    private string? _selectedTable;
+    private List<ColumnInfo> _columns = new();
+    private HashSet<string> _selectedColumnNames = new();
+    private bool _isLoadingTables;
+    private bool _isLoadingCols;
+
+    private List<JoinRowState> _joins = new();
+    private List<FilterRowState> _filters = new();
+    private int _rowLimit = 1000;
+
+    private string _compiledSql = "-- Select a table above to start building a query";
+    private QueryResult? _queryResult;
+    private string? _queryError;
+    private bool _isRunning;
+    private string _copiedLabel = "Copy SQL";
+
+    private bool _panel1Open = true;
+    private bool _panel2Open = true;
+    private bool _panel3Open = true;
+    private bool _panel4Open = false;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    protected override void OnInitialized()
+    {
+        SelectorState.OnChange += HandleDatabaseChanged;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _schemas = (await Metadata.GetSchemasAsync()).ToList();
+    }
+
+    private int _dbGeneration;
+
+    private void HandleDatabaseChanged()
+    {
+        var gen = Interlocked.Increment(ref _dbGeneration);
+        _ = InvokeAsync(async () =>
+        {
+            // Reset all state when the database connection changes
+            _selectedSchema = "";
+            _selectedTable = null;
+            _tables = new();
+            _columns = new();
+            _selectedColumnNames = new();
+            _joins = new();
+            _filters = new();
+            _compiledSql = "-- Add a table to start building a query";
+            _queryResult = null;
+            _queryError = null;
+            _isLoadingTables = false;
+            _isLoadingCols = false;
+
+            var schemas = (await Metadata.GetSchemasAsync()).ToList();
+
+            // Discard result if a newer switch happened while we were loading
+            if (gen != _dbGeneration) return;
+
+            _schemas = schemas;
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        SelectorState.OnChange -= HandleDatabaseChanged;
+    }
+
+    // ── Base table selectors ──────────────────────────────────────────────────
+
+    private async Task OnSchemaChangedAsync()
+    {
+        _selectedTable = null;
+        _tables = new();
+        _columns = new();
+        _selectedColumnNames = new();
+        _joins = new();
+        _filters = new();
+        Recompile();
+
+        if (string.IsNullOrEmpty(_selectedSchema)) return;
+
+        _isLoadingTables = true;
+        StateHasChanged();
+        try
+        {
+            _tables = (await Metadata.GetObjectsAsync(_selectedSchema))
+                .Where(o => o.ObjectType is "TABLE" or "VIEW")
+                .ToList();
+        }
+        finally
+        {
+            _isLoadingTables = false;
+        }
+    }
+
+    private async Task OnTableChangedAsync()
+    {
+        _columns = new();
+        _selectedColumnNames = new();
+        _joins = new();
+        _filters = new();
+        Recompile();
+
+        if (string.IsNullOrEmpty(_selectedSchema) || string.IsNullOrEmpty(_selectedTable)) return;
+
+        _isLoadingCols = true;
+        StateHasChanged();
+        try
+        {
+            _columns = (await Metadata.GetColumnsAsync(_selectedSchema, _selectedTable)).ToList();
+            _selectedColumnNames = _columns.Select(c => c.ColumnName).ToHashSet();
+        }
+        finally
+        {
+            _isLoadingCols = false;
+        }
+
+        Recompile();
+    }
+
+    private void ToggleColumn(string columnName, bool selected)
+    {
+        if (selected) _selectedColumnNames.Add(columnName);
+        else _selectedColumnNames.Remove(columnName);
+        Recompile();
+    }
+
+    private void SelectAllColumns()
+    {
+        _selectedColumnNames = _columns.Select(c => c.ColumnName).ToHashSet();
+        Recompile();
+    }
+
+    private void SelectNoColumns()
+    {
+        _selectedColumnNames = new();
+        Recompile();
+    }
+
+    // ── JOIN management ───────────────────────────────────────────────────────
+
+    private void AddJoin()
+    {
+        var idx = _joins.Count + 1;
+        _joins.Add(new JoinRowState { NodeId = $"t{idx}" });
+    }
+
+    private void RemoveJoin(JoinRowState join)
+    {
+        _joins.Remove(join);
+        // Reassign node IDs sequentially
+        for (var i = 0; i < _joins.Count; i++)
+            _joins[i].NodeId = $"t{i + 1}";
+        Recompile();
+    }
+
+    private async Task OnJoinSchemaChangedAsync(JoinRowState join)
+    {
+        join.TargetTable = "";
+        join.TargetTables = new();
+        join.TargetColumn = "";
+        join.TargetColumns = new();
+        Recompile();
+
+        if (string.IsNullOrEmpty(join.TargetSchema)) return;
+
+        join.IsLoadingTargetTables = true;
+        StateHasChanged();
+        try
+        {
+            join.TargetTables = (await Metadata.GetObjectsAsync(join.TargetSchema))
+                .Where(o => o.ObjectType is "TABLE" or "VIEW")
+                .ToList();
+        }
+        finally
+        {
+            join.IsLoadingTargetTables = false;
+        }
+    }
+
+    private async Task OnJoinTableChangedAsync(JoinRowState join)
+    {
+        join.TargetColumn = "";
+        join.TargetColumns = new();
+        Recompile();
+
+        if (string.IsNullOrEmpty(join.TargetSchema) || string.IsNullOrEmpty(join.TargetTable)) return;
+
+        join.IsLoadingTargetCols = true;
+        StateHasChanged();
+        try
+        {
+            join.TargetColumns = (await Metadata.GetColumnsAsync(join.TargetSchema, join.TargetTable)).ToList();
+        }
+        finally
+        {
+            join.IsLoadingTargetCols = false;
+        }
+
+        Recompile();
+    }
+
+    // ── Filter management ─────────────────────────────────────────────────────
+
+    private void AddFilter()
+    {
+        // Don't allow adding a filter until columns are loaded (prevents empty-column SQL fragments)
+        if (!_columns.Any()) return;
+        _filters.Add(new FilterRowState { TableNodeId = $"t0|{_columns[0].ColumnName}" });
+    }
+
+    private void RemoveFilter(FilterRowState filter)
+    {
+        _filters.Remove(filter);
+        Recompile();
+    }
+
+    // ── Compilation ───────────────────────────────────────────────────────────
+
+    private void Recompile()
+    {
+        if (string.IsNullOrEmpty(_selectedTable))
+        {
+            _compiledSql = "-- Select a table above to start building a query";
+            return;
+        }
+
+        var graph = BuildGraph();
+        try
+        {
+            var (sql, _) = QueryBuilder.Compile(graph);
+            _compiledSql = sql;
+        }
+        catch (Exception ex)
+        {
+            _compiledSql = $"-- Compilation error: {ex.Message}";
+        }
+    }
+
+    private QueryGraph BuildGraph()
+    {
+        // Base table node
+        var baseNode = new QueryTableNode(
+            Id: "t0",
+            SchemaName: _selectedSchema,
+            TableName: _selectedTable!,
+            SelectedColumns: _columns
+                .Where(c => _selectedColumnNames.Contains(c.ColumnName))
+                .Select(c => c.ColumnName)
+                .ToList()
+        );
+
+        // Join nodes — no columns selected by default; user must explicitly choose them (prevents
+        // a JOIN added for filtering from polluting SELECT with unwanted columns)
+        var joinNodes = _joins
+            .Where(j => !string.IsNullOrEmpty(j.TargetSchema) && !string.IsNullOrEmpty(j.TargetTable))
+            .Select(j => new QueryTableNode(
+                Id: j.NodeId,
+                SchemaName: j.TargetSchema,
+                TableName: j.TargetTable,
+                SelectedColumns: Array.Empty<string>()))
+            .ToList();
+
+        var tables = new List<QueryTableNode> { baseNode };
+        tables.AddRange(joinNodes);
+
+        // Join edges
+        var joinEdges = _joins
+            .Where(j => !string.IsNullOrEmpty(j.SourceColumn) && !string.IsNullOrEmpty(j.TargetColumn)
+                     && !string.IsNullOrEmpty(j.TargetSchema) && !string.IsNullOrEmpty(j.TargetTable))
+            .Select(j => new QueryJoinEdge(
+                JoinType: j.JoinType,
+                SourceNodeId: "t0",
+                SourceColumn: j.SourceColumn,
+                TargetNodeId: j.NodeId,
+                TargetColumn: j.TargetColumn))
+            .ToList();
+
+        // Filter nodes
+        var filterNodes = _filters
+            .Select(f =>
+            {
+                var parts = f.TableNodeId.Split('|', 2);
+                if (parts.Length != 2 || string.IsNullOrEmpty(parts[1])) return null;
+                return new QueryFilterNode(
+                    NodeId: parts[0],
+                    Column: parts[1],
+                    Operator: f.Operator,
+                    Value: string.IsNullOrEmpty(f.Value) ? null : f.Value);
+            })
+            .Where(f => f is not null)
+            .Select(f => f!)
+            .ToList();
+
+        return new QueryGraph(tables, joinEdges, filterNodes, _rowLimit > 0 ? _rowLimit : 1000);
+    }
+
+    // ── Execution ─────────────────────────────────────────────────────────────
+
+    private async Task RunQueryAsync()
+    {
+        if (_isRunning || string.IsNullOrEmpty(_selectedTable)) return;
+
+        _isRunning = true;
+        _queryError = null;
+        _queryResult = null;
+        StateHasChanged();
+
+        try
+        {
+            var result = await AdHocService.ExecuteQueryAsync(_compiledSql, _rowLimit > 0 ? _rowLimit : 1000);
+            _queryResult = result;
+            Profiler.Record(SelectorState.Current.Provider.ToString(), _compiledSql, result.ElapsedMs, result.Rows.Count);
+        }
+        catch (Exception ex)
+        {
+            _queryError = ex.Message;
+        }
+        finally
+        {
+            _isRunning = false;
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private async Task CopySqlAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", _compiledSql);
+            _copiedLabel = "Copied!";
+            StateHasChanged();
+            await Task.Delay(1500);
+            _copiedLabel = "Copy SQL";
+        }
+        catch { /* clipboard API not available */ }
+    }
+
+    /// <summary>Returns all available (nodeId, columns) pairs for filter dropdowns.</summary>
+    private IEnumerable<(string NodeId, IReadOnlyList<ColumnInfo> Columns)> GetAllTableColumns()
+    {
+        yield return ("t0", _columns);
+        foreach (var join in _joins.Where(j => j.TargetColumns.Count > 0))
+            yield return (join.NodeId, join.TargetColumns);
+    }
+
+    private static string OperatorLabel(FilterOperator op) => op switch
+    {
+        FilterOperator.Equals             => "=",
+        FilterOperator.NotEquals          => "≠",
+        FilterOperator.GreaterThan        => ">",
+        FilterOperator.GreaterThanOrEqual => "≥",
+        FilterOperator.LessThan           => "<",
+        FilterOperator.LessThanOrEqual    => "≤",
+        FilterOperator.Like               => "LIKE",
+        FilterOperator.NotLike            => "NOT LIKE",
+        FilterOperator.IsNull             => "IS NULL",
+        FilterOperator.IsNotNull          => "IS NOT NULL",
+        _                                 => op.ToString()
+    };
+}

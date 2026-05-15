@@ -1,7 +1,10 @@
 @inherits LayoutComponentBase
 @using DbExplorer.Services
+@using DbExplorer.Options
+@using Microsoft.Extensions.Options
 @inject ThemeState ThemeState
 @inject IJSRuntime JS
+@inject IOptions<QueryBuilderOptions> QBOpts
 @implements IDisposable
 
 <div class="layout @(ThemeState.IsDarkMode ? "theme-dark" : "theme-light")">
@@ -12,6 +15,10 @@
         <nav class="sidebar-nav">
             <a href="/" class="sidebar-nav-link">Explorer</a>
             <a href="/profiler" class="sidebar-nav-link">Profiler</a>
+            @if (QBOpts.Value.Enabled)
+            {
+                <a href="/query-builder" class="sidebar-nav-link">Query Builder</a>
+            }
         </nav>
         <RecentlyViewed />
         <ObjectTree />

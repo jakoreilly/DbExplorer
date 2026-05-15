@@ -72,6 +72,11 @@ builder.Services.AddOptions<ProfilerOptions>()
     .Bind(builder.Configuration.GetSection("Profiler"))
     .ValidateDataAnnotations()
     .ValidateOnStart();
+builder.Services.AddOptions<QueryBuilderOptions>()
+    .Bind(builder.Configuration.GetSection("QueryBuilder"))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddScoped<IQueryBuilderService, QueryBuilderService>();
 builder.Services.AddScoped<IDbConnectionFactory>(sp =>
     new DbConnectionFactory(
         sp.GetRequiredService<DatabaseSelectorState>(),
