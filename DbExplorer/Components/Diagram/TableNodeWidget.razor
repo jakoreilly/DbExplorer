@@ -1,0 +1,77 @@
+@using Blazor.Diagrams.Components.Renderers
+@using DbExplorer.Core.Models
+
+<div class="tnode @(Node.Selected ? "tnode--selected" : "")"
+     @onpointerdown:stopPropagation
+     @onpointermove:stopPropagation
+     @onpointerup:stopPropagation>
+
+    <div class="tnode__header">
+        <span class="tnode__alias">@Node.Alias</span>
+        <span class="tnode__title">@Node.SchemaName.@Node.TableName</span>
+    </div>
+
+    @if (Node.IsLoading)
+    {
+        <div class="tnode__body tnode__loading">Loading columns…</div>
+    }
+    else if (Node.Columns.Count == 0)
+    {
+        <div class="tnode__body tnode__empty">No columns</div>
+    }
+    else
+    {
+        <div class="tnode__body">
+            <div class="tnode__col-toolbar">
+                <button class="tnode__btn" @onclick="SelectAll" @onpointerdown:stopPropagation>All</button>
+                <button class="tnode__btn" @onclick="SelectNone" @onpointerdown:stopPropagation>None</button>
+                <span class="tnode__count">@Node.SelectedColumns.Count/@Node.Columns.Count</span>
+            </div>
+            @foreach (var col in Node.Columns)
+            {
+                <label class="tnode__col @(col.IsPrimaryKey ? "tnode__col--pk" : "")">
+                    <input type="checkbox"
+                           checked="@Node.SelectedColumns.Contains(col.ColumnName)"
+                           @onchange="e => ToggleColumn(col.ColumnName, (bool)(e.Value ?? false))"
+                           @onpointerdown:stopPropagation />
+                    <span class="tnode__col-name">@col.ColumnName</span>
+                    <span class="tnode__col-type">@col.DataType</span>
+                </label>
+            }
+        </div>
+    }
+
+    @foreach (var port in Node.Ports)
+    {
+        <PortRenderer @key="port" Port="port" />
+    }
+</div>
+
+@code {
+    [Parameter] public TableDiagramNode Node { get; set; } = default!;
+
+    /// <summary>Invoked when column selection changes so the parent page can recompile.</summary>
+    [Parameter] public Action? OnColumnChanged { get; set; }
+
+    private void ToggleColumn(string column, bool selected)
+    {
+        if (selected) Node.SelectedColumns.Add(column);
+        else          Node.SelectedColumns.Remove(column);
+        Node.Refresh();   // re-render the widget
+        OnColumnChanged?.Invoke();
+    }
+
+    private void SelectAll()
+    {
+        Node.SelectedColumns = Node.Columns.Select(c => c.ColumnName).ToHashSet();
+        Node.Refresh();
+        OnColumnChanged?.Invoke();
+    }
+
+    private void SelectNone()
+    {
+        Node.SelectedColumns.Clear();
+        Node.Refresh();
+        OnColumnChanged?.Invoke();
+    }
+}

@@ -41,6 +41,16 @@
         }
     </div>
 
+    @* ── Mode tabs ────────────────────────────────────────────────────────── *@
+    <div class="qb-mode-tabs">
+        <button class="qb-mode-tab @(_activeMode == "form" ? "qb-mode-tab--active" : "")"
+                @onclick='() => SwitchMode("form")'>⚙ Form Builder</button>
+        <button class="qb-mode-tab @(_activeMode == "canvas" ? "qb-mode-tab--active" : "")"
+                @onclick='() => SwitchMode("canvas")'>◈ Visual Canvas</button>
+    </div>
+
+    @if (_activeMode == "form")
+    {
     @* ── Panel 1: Base Table ──────────────────────────────────────────────── *@
     <div class="profiler-panel @(_panel1Open ? "profiler-panel--open" : "")">
         <div class="profiler-panel-header" @onclick="() => _panel1Open = !_panel1Open">
@@ -261,13 +271,116 @@
         }
     </div>
 
+    } @* end @if (_activeMode == "form") *@
+    else
+    {
+    @* ── Visual Canvas ────────────────────────────────────────────────────── *@
+    <div class="qb-canvas-layout">
+        <div class="qb-canvas-sidebar">
+            <h4 class="qb-canvas-sidebar__title">Add Tables</h4>
+            <select class="qb-select" @bind="_canvasBrowserSchema" @bind:after="OnCanvasBrowserSchemaChangedAsync">
+                <option value="">— schema —</option>
+                @foreach (var s in _schemas)
+                {
+                    <option value="@s.SchemaName">@s.SchemaName</option>
+                }
+            </select>
+            @if (_isLoadingCanvasTables)
+            {
+                <p class="qb-hint" style="margin-top:0.5rem">Loading…</p>
+            }
+            else if (_canvasBrowserTables.Any())
+            {
+                <div class="qb-sidebar-tables">
+                    @foreach (var t in _canvasBrowserTables)
+                    {
+                        <div class="qb-sidebar-table"
+                             draggable="true"
+                             title="Drag onto the canvas"
+                             @ondragstart="() => OnCanvasDragStart(_canvasBrowserSchema, t.ObjectName)">
+                            @t.ObjectName
+                        </div>
+                    }
+                </div>
+            }
+            else if (!string.IsNullOrEmpty(_canvasBrowserSchema))
+            {
+                <p class="qb-hint" style="margin-top:0.5rem">No tables found.</p>
+            }
+        </div>
+
+        <div class="qb-canvas-area" @ondragover:preventDefault @ondrop="OnCanvasDrop">
+            <CascadingValue Value="_blazorDiagram">
+                <DiagramCanvas></DiagramCanvas>
+            </CascadingValue>
+        </div>
+    </div>
+
+    @* JOIN configuration *@
+    @if (CanvasLinks.Count > 0)
+    {
+        <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+            <div class="profiler-panel-header" style="cursor:default">
+                <span>JOIN Configuration</span>
+                <span class="profiler-panel-meta">@CanvasLinks.Count join(s)</span>
+            </div>
+            <div class="profiler-panel-body">
+                @foreach (var link in CanvasLinks)
+                {
+                    var srcNode = (link.Source as SinglePortAnchor)?.Port.Parent as TableDiagramNode;
+                    var tgtNode = (link.Target as SinglePortAnchor)?.Port.Parent as TableDiagramNode;
+                    if (!_canvasJoinConfigs.TryGetValue(link.Id, out var cfg)) continue;
+                    <div class="qb-join-row" @key="link.Id">
+                        <span class="qb-hint">@srcNode!.Alias.</span>
+                        <select class="qb-select qb-select--sm" @bind="cfg.SourceColumn" @bind:after="RecompileCanvas">
+                            <option value="">— col —</option>
+                            @foreach (var col in srcNode.Columns)
+                            {
+                                <option value="@col.ColumnName">@col.ColumnName</option>
+                            }
+                        </select>
+                        <select class="qb-select qb-select--sm" @bind="cfg.JoinType" @bind:after="RecompileCanvas">
+                            @foreach (var jt in Enum.GetValues<JoinType>())
+                            {
+                                <option value="@jt">@jt.ToString().ToUpperInvariant() JOIN</option>
+                            }
+                        </select>
+                        <span class="qb-hint">@tgtNode!.Alias.</span>
+                        <select class="qb-select qb-select--sm" @bind="cfg.TargetColumn" @bind:after="RecompileCanvas">
+                            <option value="">— col —</option>
+                            @foreach (var col in tgtNode.Columns)
+                            {
+                                <option value="@col.ColumnName">@col.ColumnName</option>
+                            }
+                        </select>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    @* Row limit for canvas mode *@
+    <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+        <div class="profiler-panel-header" style="cursor:default">
+            <span>Options</span>
+        </div>
+        <div class="profiler-panel-body">
+            <div class="qb-row">
+                <label class="qb-label">Row limit</label>
+                <input class="qb-input qb-input--sm" type="number" min="1" max="10000"
+                       @bind="_rowLimit" @bind:event="oninput" @bind:after="RecompileCanvas" />
+            </div>
+        </div>
+    </div>
+    } @* end @else (canvas mode) *@
+
     @* ── SQL Preview ──────────────────────────────────────────────────────── *@
     <div class="qb-sql-preview">
         <div class="qb-sql-preview-header">
             <span>Generated SQL</span>
             <div class="qb-sql-actions">
                 <button class="profiler-btn" @onclick="CopySqlAsync">@_copiedLabel</button>
-                <button class="profiler-btn profiler-btn--primary" disabled="@(_isRunning || _selectedTable is null)"
+                <button class="profiler-btn profiler-btn--primary" disabled="@(!CanRunQuery)"
                         @onclick="RunQueryAsync">
                     @(_isRunning ? "Running…" : "▶ Run Query")
                 </button>
@@ -356,7 +469,19 @@
         public string Value { get; set; } = "";
     }
 
-    // ── Page state ────────────────────────────────────────────────────────────
+    /// <summary>Mutable config for a JOIN link on the visual canvas.</summary>
+    private sealed class CanvasJoinConfig
+    {
+        public JoinType JoinType    { get; set; } = JoinType.Inner;
+        public string SourceColumn  { get; set; } = "";
+        public string TargetColumn  { get; set; } = "";
+    }
+
+    // ── Mode ──────────────────────────────────────────────────────────────────
+
+    private string _activeMode = "form"; // "form" | "canvas"
+
+    // ── Form-builder page state ───────────────────────────────────────────────
 
     private List<SchemaInfo> _schemas = new();
     private string _selectedSchema = "";
@@ -382,11 +507,22 @@
     private bool _panel3Open = true;
     private bool _panel4Open = false;
 
+    // ── Canvas state ──────────────────────────────────────────────────────────
+
+    private BlazorDiagram _blazorDiagram = null!;
+    private string _canvasBrowserSchema = "";
+    private List<DatabaseObjectInfo> _canvasBrowserTables = new();
+    private bool _isLoadingCanvasTables;
+    private (string Schema, string TableName)? _draggedTableInfo;
+    private int _nextNodeIndex;
+    private readonly Dictionary<string, CanvasJoinConfig> _canvasJoinConfigs = new();
+
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     protected override void OnInitialized()
     {
         SelectorState.OnChange += HandleDatabaseChanged;
+        InitCanvas();
     }
 
     protected override async Task OnInitializedAsync()
@@ -415,6 +551,11 @@
             _isLoadingTables = false;
             _isLoadingCols = false;
 
+            // Reset canvas
+            _canvasBrowserSchema = "";
+            _canvasBrowserTables = new();
+            InitCanvas();
+
             var schemas = (await Metadata.GetSchemasAsync()).ToList();
 
             // Discard result if a newer switch happened while we were loading
@@ -428,7 +569,197 @@
     public void Dispose()
     {
         SelectorState.OnChange -= HandleDatabaseChanged;
+        DisposeCanvas();
     }
+
+    // ── Canvas initialisation / teardown ─────────────────────────────────────
+
+    private void InitCanvas()
+    {
+        DisposeCanvas(); // unsubscribe from any prior diagram events
+
+        _blazorDiagram = new BlazorDiagram();
+        _blazorDiagram.RegisterComponent<TableDiagramNode, TableNodeWidget>();
+        _blazorDiagram.Links.Added   += OnDiagramLinkAdded;
+        _blazorDiagram.Links.Removed += OnDiagramLinkRemoved;
+        _canvasJoinConfigs.Clear();
+        _nextNodeIndex = 0;
+    }
+
+    private void DisposeCanvas()
+    {
+        if (_blazorDiagram is null) return;
+        foreach (var link in _blazorDiagram.Links)
+            link.Changed -= OnDiagramLinkChanged;
+        _blazorDiagram.Links.Added   -= OnDiagramLinkAdded;
+        _blazorDiagram.Links.Removed -= OnDiagramLinkRemoved;
+    }
+
+    // ── Mode switching ────────────────────────────────────────────────────────
+
+    private void SwitchMode(string mode)
+    {
+        _activeMode = mode;
+        if (mode == "canvas")
+            RecompileCanvas();
+        else
+            Recompile();
+    }
+
+    // ── Canvas drag-and-drop ──────────────────────────────────────────────────
+
+    private void OnCanvasDragStart(string schema, string tableName)
+        => _draggedTableInfo = (schema, tableName);
+
+    private async Task OnCanvasDrop(DragEventArgs e)
+    {
+        if (_draggedTableInfo is null) return;
+        var (schema, tableName) = _draggedTableInfo.Value;
+        _draggedTableInfo = null;
+
+        var position = _blazorDiagram.GetRelativeMousePoint(e.ClientX, e.ClientY);
+        var alias = $"t{_nextNodeIndex++}";
+        var node  = new TableDiagramNode(alias, position)
+        {
+            SchemaName = schema,
+            TableName  = tableName,
+            IsLoading  = true
+        };
+        _blazorDiagram.Nodes.Add(node);
+
+        try
+        {
+            var cols = (await Metadata.GetColumnsAsync(schema, tableName)).ToList();
+            node.Columns          = cols;
+            node.SelectedColumns  = cols.Select(c => c.ColumnName).ToHashSet();
+        }
+        finally
+        {
+            node.IsLoading = false;
+            node.Refresh();
+        }
+
+        RecompileCanvas();
+        StateHasChanged();
+    }
+
+    private async Task OnCanvasBrowserSchemaChangedAsync()
+    {
+        _canvasBrowserTables = new();
+        if (string.IsNullOrEmpty(_canvasBrowserSchema)) return;
+
+        _isLoadingCanvasTables = true;
+        StateHasChanged();
+        try
+        {
+            _canvasBrowserTables = (await Metadata.GetObjectsAsync(_canvasBrowserSchema))
+                .Where(o => o.ObjectType is "TABLE" or "VIEW")
+                .ToList();
+        }
+        finally { _isLoadingCanvasTables = false; }
+    }
+
+    // ── Canvas link events ────────────────────────────────────────────────────
+
+    private void OnDiagramLinkAdded(BaseLinkModel link)
+        => link.Changed += OnDiagramLinkChanged;
+
+    private void OnDiagramLinkChanged(Model model)
+    {
+        if (model is not BaseLinkModel link) return;
+        if (link.Source is not SinglePortAnchor srcAnchor || link.Target is not SinglePortAnchor tgtAnchor) return;
+
+        if (!_canvasJoinConfigs.ContainsKey(link.Id))
+        {
+            var srcNode = srcAnchor.Port.Parent as TableDiagramNode;
+            var tgtNode = tgtAnchor.Port.Parent as TableDiagramNode;
+            _canvasJoinConfigs[link.Id] = new CanvasJoinConfig
+            {
+                SourceColumn = srcNode?.Columns.FirstOrDefault()?.ColumnName ?? "",
+                TargetColumn = tgtNode?.Columns.FirstOrDefault()?.ColumnName ?? ""
+            };
+        }
+
+        _ = InvokeAsync(() => { RecompileCanvas(); StateHasChanged(); });
+    }
+
+    private void OnDiagramLinkRemoved(BaseLinkModel link)
+    {
+        link.Changed -= OnDiagramLinkChanged;
+        _canvasJoinConfigs.Remove(link.Id);
+        _ = InvokeAsync(() => { RecompileCanvas(); StateHasChanged(); });
+    }
+
+    // ── Canvas compilation ────────────────────────────────────────────────────
+
+    private QueryGraph BuildGraphFromCanvas()
+    {
+        var tableNodes = _blazorDiagram.Nodes.OfType<TableDiagramNode>().ToList();
+        if (!tableNodes.Any())
+            return new QueryGraph(Array.Empty<QueryTableNode>(), Array.Empty<QueryJoinEdge>(),
+                                  Array.Empty<QueryFilterNode>(), _rowLimit);
+
+        var tables = tableNodes
+            .Select(n => new QueryTableNode(
+                Id: n.Alias,
+                SchemaName: n.SchemaName,
+                TableName: n.TableName,
+                SelectedColumns: n.SelectedColumns.ToList()))
+            .ToList();
+
+        var joins = new List<QueryJoinEdge>();
+        foreach (var link in _blazorDiagram.Links)
+        {
+            if (link.Source is not SinglePortAnchor srcAnchor || link.Target is not SinglePortAnchor tgtAnchor) continue;
+            if (srcAnchor.Port.Parent is not TableDiagramNode srcNode)                                       continue;
+            if (tgtAnchor.Port.Parent is not TableDiagramNode tgtNode)                                       continue;
+            if (!_canvasJoinConfigs.TryGetValue(link.Id, out var cfg))                    continue;
+            if (string.IsNullOrEmpty(cfg.SourceColumn) || string.IsNullOrEmpty(cfg.TargetColumn)) continue;
+
+            joins.Add(new QueryJoinEdge(
+                JoinType: cfg.JoinType,
+                SourceNodeId: srcNode.Alias,
+                SourceColumn: cfg.SourceColumn,
+                TargetNodeId: tgtNode.Alias,
+                TargetColumn: cfg.TargetColumn));
+        }
+
+        return new QueryGraph(tables, joins, Array.Empty<QueryFilterNode>(), _rowLimit);
+    }
+
+    private void RecompileCanvas()
+    {
+        var graph = BuildGraphFromCanvas();
+        if (!graph.Tables.Any())
+        {
+            _compiledSql = "-- Drop a table onto the canvas to start building a query";
+            return;
+        }
+        try
+        {
+            var (sql, _) = QueryBuilder.Compile(graph);
+            _compiledSql = sql;
+        }
+        catch (Exception ex)
+        {
+            _compiledSql = $"-- Compilation error: {ex.Message}";
+        }
+    }
+
+    // ── Canvas helpers ────────────────────────────────────────────────────────
+
+    private IReadOnlyList<BaseLinkModel> CanvasLinks =>
+        _blazorDiagram.Links
+            .Where(l => l.Source is SinglePortAnchor spa && l.Target is SinglePortAnchor tpa
+                     && spa.Port.Parent is TableDiagramNode && tpa.Port.Parent is TableDiagramNode)
+            .ToList();
+
+    // ── Run Query guard ───────────────────────────────────────────────────────
+
+    private bool CanRunQuery =>
+        !_isRunning && (
+            (_activeMode == "form"   && _selectedTable is not null) ||
+            (_activeMode == "canvas" && _blazorDiagram.Nodes.OfType<TableDiagramNode>().Any()));
 
     // ── Base table selectors ──────────────────────────────────────────────────
 
@@ -664,7 +995,7 @@
 
     private async Task RunQueryAsync()
     {
-        if (_isRunning || string.IsNullOrEmpty(_selectedTable)) return;
+        if (!CanRunQuery) return;
 
         _isRunning = true;
         _queryError = null;

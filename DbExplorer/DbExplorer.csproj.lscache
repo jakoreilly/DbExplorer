@@ -55,6 +55,7 @@ TemporaryDependencyNodeTargetIdentifier=net10.0
 /warnaserror+:NU1605,SYSLIB0011
 
 [sourceFiles]
+Components/Diagram/TableDiagramNode.cs
 Controllers/
  DataController.cs
  MetadataController.cs
@@ -424,10 +425,13 @@ Services/
  serilog/4.0.0/lib/net8.0/Serilog.dll
  sqlkata.execution/2.4.0/lib/netstandard2.0/SqlKata.Execution.dll
  sqlkata/2.4.0/lib/netstandard2.0/SqlKata.dll
+ svgpathproperties/1.1.2/lib/netstandard2.0/SvgPathProperties.dll
  system.clientmodel/1.0.0/lib/net6.0/System.ClientModel.dll
  system.identitymodel.tokens.jwt/8.0.1/lib/net9.0/System.IdentityModel.Tokens.Jwt.dll
  system.memory.data/1.0.2/lib/netstandard2.0/System.Memory.Data.dll
  system.security.cryptography.protecteddata/8.0.0/lib/net8.0/System.Security.Cryptography.ProtectedData.dll
+ z.blazor.diagrams.core/3.0.4.1/lib/net10.0/Blazor.Diagrams.Core.dll
+ z.blazor.diagrams/3.0.4.1/lib/net10.0/Blazor.Diagrams.dll
 
 [analyzerReferences]
 <DOTNET>/packs/Microsoft.AspNetCore.App.Ref/10.0.0/analyzers/dotnet/cs/
@@ -465,6 +469,7 @@ Components/
  App.razor
  DatabaseSelector.razor
  DataGrid.razor
+ Diagram/TableNodeWidget.razor
  Layout/MainLayout.razor
  ObjectTree.razor
  Pages/
@@ -490,6 +495,7 @@ Components/
  App.razor
  DatabaseSelector.razor
  DataGrid.razor
+ Diagram/TableNodeWidget.razor
  Layout/MainLayout.razor
  ObjectTree.razor
  Pages/

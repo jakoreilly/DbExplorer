@@ -433,6 +433,7 @@ Unit/
  serilog/4.0.0/lib/net8.0/Serilog.dll
  sqlkata.execution/2.4.0/lib/netstandard2.0/SqlKata.Execution.dll
  sqlkata/2.4.0/lib/netstandard2.0/SqlKata.dll
+ svgpathproperties/1.1.2/lib/netstandard2.0/SvgPathProperties.dll
  system.clientmodel/1.0.0/lib/net6.0/System.ClientModel.dll
  system.configuration.configurationmanager/8.0.0/lib/net8.0/System.Configuration.ConfigurationManager.dll
  system.identitymodel.tokens.jwt/8.0.1/lib/net9.0/System.IdentityModel.Tokens.Jwt.dll
@@ -442,6 +443,8 @@ Unit/
  xunit.assert/2.9.2/lib/net6.0/xunit.assert.dll
  xunit.extensibility.core/2.9.2/lib/netstandard1.1/xunit.core.dll
  xunit.extensibility.execution/2.9.2/lib/netstandard1.1/xunit.execution.dotnet.dll
+ z.blazor.diagrams.core/3.0.4.1/lib/net10.0/Blazor.Diagrams.Core.dll
+ z.blazor.diagrams/3.0.4.1/lib/net10.0/Blazor.Diagrams.dll
 
 [analyzerReferences]
 <DOTNET>/packs/Microsoft.AspNetCore.App.Ref/10.0.0/analyzers/dotnet/cs/
