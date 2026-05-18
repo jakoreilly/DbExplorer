@@ -239,6 +239,7 @@ dotnet test DbExplorer.sln
 | `Mcp:Enabled` | `false` | Enable the MCP server endpoint at `/mcp` |
 | `Mcp:ApiKey` | `""` | **Required** Bearer token when MCP is enabled; the endpoint returns HTTP 503 until a value is set |
 | `Audit:Enabled` | `false` | Enable GDPR audit logging — records who accessed what and when (no row data) |
+| `Audit:LogSql` | `true` | Include SQL text in audit records for ad-hoc queries and MCP `RunSelectQuery` calls; set `false` if users may embed PII in predicates |
 
 ---
 
@@ -307,7 +308,8 @@ Enable structured access logging for compliance and incident response by setting
 ```json
 {
   "Audit": {
-    "Enabled": true
+    "Enabled": true,
+    "LogSql": true
   }
 }
 ```
@@ -348,7 +350,7 @@ Audit events are written via `ILogger` and are fully compatible with Serilog. To
 
 ### GDPR note
 
-SQL statements from ad-hoc queries and MCP tool calls are included in audit logs because they are operational metadata. Review your data classification policy before enabling if users may embed personal data in query predicates (e.g. `WHERE email = 'user@example.com'`).
+SQL statements from ad-hoc queries and MCP tool calls are included in audit logs because they are operational metadata. Review your data classification policy before enabling if users may embed personal data in query predicates (e.g. `WHERE email = 'user@example.com'`). Set `Audit:LogSql = false` to record all other access metadata without capturing the SQL text.
 
 ---
 

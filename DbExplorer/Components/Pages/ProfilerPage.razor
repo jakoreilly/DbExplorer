@@ -449,11 +449,19 @@
     private QueryResult? recentQueriesResult;
     private string? recentQueriesError;
     private bool recentQueriesRunning;
+    private string _username = "anonymous";
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
     protected override void OnInitialized()
     {
         queryLog = Profiler.GetHistory();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Cache username once so we don't call GetAuthenticationStateAsync() on every query run.
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        _username = authState.User.Identity?.Name ?? "anonymous";
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -504,9 +512,7 @@
             queryResult = await AdHocService.ExecuteQueryAsync(queryText.Trim());
             Profiler.Record(SelectorState.Current.Provider.ToString(), queryText.Trim(),
                 queryResult.ElapsedMs, queryResult.Rows.Count);
-            var authState = await AuthState.GetAuthenticationStateAsync();
-            var username = authState.User.Identity?.Name ?? "anonymous";
-            Audit.Log(new AuditEvent(DateTimeOffset.UtcNow, username, AuditAction.AdHocQuery,
+            Audit.Log(new AuditEvent(DateTimeOffset.UtcNow, _username, AuditAction.AdHocQuery,
                 null, null, queryResult.Rows.Count, queryResult.ElapsedMs, Sql: queryText.Trim()));
         }
         catch (InvalidOperationException ex)

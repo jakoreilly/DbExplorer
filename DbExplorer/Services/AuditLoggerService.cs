@@ -22,6 +22,7 @@ namespace DbExplorer.Services;
 public sealed class AuditLoggerService : IAuditLogger
 {
     private readonly bool _enabled;
+    private readonly bool _logSql;
     private readonly ILogger<AuditLoggerService> _logger;
 
     // Pre-defined EventId values so log routing tools can filter by ID.
@@ -35,6 +36,7 @@ public sealed class AuditLoggerService : IAuditLogger
         ILogger<AuditLoggerService> logger)
     {
         _enabled = options.Value.Enabled;
+        _logSql  = options.Value.LogSql;
         _logger  = logger;
     }
 
@@ -42,6 +44,10 @@ public sealed class AuditLoggerService : IAuditLogger
     public void Log(AuditEvent evt)
     {
         if (!_enabled) return;
+
+        // Suppress SQL if the operator has disabled SQL capture (e.g. to avoid logging PII
+        // that users might embed in query predicates).
+        var sql = _logSql ? (evt.Sql ?? "-") : "<redacted>";
 
         var eventId = evt.Action switch
         {
@@ -65,6 +71,6 @@ public sealed class AuditLoggerService : IAuditLogger
             evt.RowCount,
             evt.ElapsedMs,
             evt.McpTool ?? "-",
-            evt.Sql ?? "-");
+            sql);
     }
 }
