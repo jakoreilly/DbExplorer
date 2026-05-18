@@ -16,7 +16,7 @@ Built with .NET 10 Blazor Server. No cloud dependency. No data leaves your netwo
 | Non-technical stakeholders need to explore data without learning SQL | Visual Query Builder — drag tables, draw JOINs, get SQL instantly |
 | You want to give AI assistants (Copilot, Claude) access to your schema without risk | Built-in MCP server exposes schema and query tools behind a Bearer token |
 | Running ad-hoc queries against production is scary | The Profiler page only allows `SELECT` statements — DDL and DML are blocked server-side |
-| You need GDPR-compliant access logging | Optional structured audit log records who accessed what and when — routable to any Serilog sink |
+| You need GDPR-compliant access logging | Optional structured audit log records sign-ins, sign-outs, and every data access with who/what/when — routable to any Serilog sink |
 | You want SSO without running your own identity server | Windows Negotiate (Kerberos) and Google OAuth built-in, both feature-flagged |
 | Dark mode | Yes |
 
@@ -344,20 +344,20 @@ Enable structured access logging for compliance and incident response by setting
 
 ### What is logged
 
-Every successful data access operation emits a structured log event under the `DbExplorer.Audit` logger category:
+Every auditable operation emits a structured log event under the `DbExplorer.Audit` logger category:
 
 | Field | Description |
 |-------|-------------|
-| `Action` | `MetadataAccess`, `DataAccess`, `AdHocQuery`, or `McpToolCall` |
-| `Username` | Authenticated user from the session cookie |
-| `SchemaName` | Schema involved (if applicable) |
-| `ObjectName` | Table/view/object accessed (if applicable) |
-| `RowCount` | Number of rows returned |
-| `ElapsedMs` | Query duration |
-| `Sql` | SQL text for ad-hoc queries and MCP `RunSelectQuery` calls |
-| `McpTool` | Tool name for MCP calls |
+| `Action` | `MetadataAccess`, `DataAccess`, `AdHocQuery`, `McpToolCall`, `Login`, `LoginFailed`, or `Logout` |
+| `Username` | Authenticated user (or the attempted username for `LoginFailed`) |
+| `SchemaName` | Schema involved (if applicable, else `-`) |
+| `ObjectName` | Table/view/object accessed (if applicable, else `-`) |
+| `RowCount` | Number of rows returned (`-1` for non-data events) |
+| `ElapsedMs` | Query duration (`-1` for non-query events) |
+| `Sql` | SQL text for ad-hoc queries and MCP `RunSelectQuery` calls (controlled by `Audit:LogSql`) |
+| `Context` | Provider context for authentication events (e.g. `{ "provider": "google" }`); tool name for MCP calls (e.g. `{ "tool": "RunSelectQuery" }`) |
 
-**No row data is ever logged.** Only access metadata is recorded.
+**No row data is ever logged.** Only access and authentication metadata is recorded.
 
 ### Log routing
 
