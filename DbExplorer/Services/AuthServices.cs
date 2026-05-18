@@ -1,20 +1,27 @@
+using DbExplorer.Options;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.Extensions.Options;
 using System.Security.Claims;
 
 namespace DbExplorer.Services;
 
 /// <summary>
 /// Simple credential-based login using hashed passwords from configuration.
-/// Replace with OIDC/Windows Auth for enterprise environments.
 /// </summary>
 public static class LoginHandler
 {
     public static async Task<IResult> Handle(
         HttpContext context,
         IConfiguration config,
+        IOptions<AuthOptions> authOptions,
         ILogger<Program> logger)
     {
+        // Reject the request when the local credential store has been explicitly disabled
+        // (and at least one external provider is enabled, so the effective-active guard passes).
+        if (!authOptions.Value.IsLocalLoginActive)
+            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+
         var form = await context.Request.ReadFormAsync();
         var username = form["username"].ToString().Trim();
         var password = form["password"].ToString();

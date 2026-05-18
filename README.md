@@ -48,7 +48,7 @@ Expose your database schema and query execution to AI assistants via the [Model 
 - Disabled by default — opt-in per deployment
 
 ### Authentication
-- **Built-in credential store** — username + PBKDF2-hashed password in `appsettings.json`
+- **Built-in credential store** — username + PBKDF2-hashed password in `appsettings.json`. Controlled by `Auth:Local:Enabled` (default `true`; cannot be disabled unless at least one external provider is enabled)
 - **Windows Authentication (Negotiate/Kerberos)** — domain users sign in with one click, no password typed; disabled by default, enable with `Auth:Windows:Enabled = true`
 - **Google OAuth 2.0** — sign in with a Google account; optional email allow-list restricts access to specific domains (`*@yourcompany.com`) or individuals; disabled by default, enable with `Auth:Google:Enabled = true`
 - All providers issue the same secure session cookie after sign-in — a single auth scheme protects the whole app regardless of which provider was used
@@ -118,7 +118,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO dbexplorer_ro;
 
 DbExplorer supports three authentication mechanisms, all of which issue a secure ASP.NET Core session cookie after sign-in:
 
-1. **Built-in credential store** — username + PBKDF2-hashed password configured in `appsettings.json`. Suitable for small teams or personal deployments.
+1. **Built-in credential store** — username + PBKDF2-hashed password configured in `appsettings.json`. Suitable for small teams or personal deployments. Controlled by `Auth:Local:Enabled` (default `true`; automatically stays on when no external provider is active to prevent lockout).
 2. **Windows Authentication (Negotiate/Kerberos)** — domain users sign in with a single click via their Windows credentials. No password typed. Enable with `Auth:Windows:Enabled = true`. See [External Authentication](#external-authentication).
 3. **Google OAuth 2.0** — sign in with a Google account, optionally restricted to specific email domains. Enable with `Auth:Google:Enabled = true`. See [External Authentication](#external-authentication).
 
@@ -265,6 +265,7 @@ dotnet test DbExplorer.sln
 | `Mcp:ApiKey` | `""` | **Required** Bearer token when MCP is enabled; the endpoint returns HTTP 503 until a value is set |
 | `Audit:Enabled` | `false` | Enable GDPR audit logging — records who accessed what and when (no row data) |
 | `Audit:LogSql` | `true` | Include SQL text in audit records for ad-hoc queries and MCP `RunSelectQuery` calls; set `false` if users may embed PII in predicates |
+| `Auth:Local:Enabled` | `true` | Enable the built-in username/password login form; automatically stays active when no external providers are enabled (lockout prevention) |
 | `Auth:Windows:Enabled` | `false` | Enable Windows Negotiate (Kerberos/NTLM) sign-in; requires a domain-joined server |
 | `Auth:Google:Enabled` | `false` | Enable Google OAuth 2.0 sign-in; requires `ClientId` and `ClientSecret` from Google Cloud Console |
 
@@ -387,7 +388,7 @@ Beyond the built-in username/password login, DbExplorer supports two additional 
 
 ### Windows Authentication (Negotiate/Kerberos)
 
-For enterprise environments on a Windows domain, users can sign in with their domain credentials via the "Sign in with Windows" button on the login page. The server negotiates via Kerberos or NTLM — no password is typed.
+For enterprise environments on a Windows domain, users can sign in with their domain credentials via the "Sign in with Windows" button on the login page. The server negotiates via Kerberos or NTLM — no password is typed. Set `Auth:Local:Enabled = false` to hide the password form when all users are on the domain.
 
 **Requirements**: IIS with Windows Authentication enabled, or Kestrel running on a domain-joined server.
 
@@ -401,7 +402,7 @@ For enterprise environments on a Windows domain, users can sign in with their do
 
 ### Google OAuth 2.0
 
-Allow users to sign in with their Google account. Optionally restrict access to specific email addresses or entire domains using wildcard patterns.
+Allow users to sign in with their Google account. Optionally restrict access to specific email addresses or entire domains using wildcard patterns. Set `Auth:Local:Enabled = false` to remove the password form entirely when all users authenticate via Google.
 
 **Setup**:
 1. Create an OAuth 2.0 client in [Google Cloud Console](https://console.cloud.google.com/apis/credentials).

@@ -2,15 +2,38 @@ namespace DbExplorer.Options;
 
 /// <summary>
 /// Feature-flag configuration for authentication providers.
-/// All external providers are disabled by default.
+/// The local credential store is on by default; external providers are disabled by default.
 /// </summary>
 public sealed class AuthOptions
 {
+    /// <summary>Built-in username/password (PBKDF2) credential store.</summary>
+    public LocalAuthOptions Local { get; init; } = new();
+
     /// <summary>Windows Negotiate (Kerberos/NTLM) authentication.</summary>
     public WindowsAuthOptions Windows { get; init; } = new();
 
     /// <summary>Google OAuth 2.0 authentication.</summary>
     public GoogleAuthOptions Google { get; init; } = new();
+
+    /// <summary>
+    /// Returns true when the local login form should be shown and the /api/login endpoint
+    /// should accept requests. The local store is active when:
+    ///   - Auth:Local:Enabled is explicitly true, OR
+    ///   - No external providers are enabled (automatic fallback — prevents being locked out).
+    /// </summary>
+    public bool IsLocalLoginActive =>
+        Local.Enabled || (!Windows.Enabled && !Google.Enabled);
+}
+
+public sealed class LocalAuthOptions
+{
+    /// <summary>
+    /// Enable the built-in username/password login form and /api/login endpoint.
+    /// Defaults to <c>true</c>. Set to <c>false</c> when all users should authenticate via
+    /// an external provider (Windows or Google). The app will automatically keep the local
+    /// store active if no external provider is enabled, preventing accidental lockout.
+    /// </summary>
+    public bool Enabled { get; init; } = true;
 }
 
 public sealed class WindowsAuthOptions

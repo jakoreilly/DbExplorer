@@ -20,6 +20,8 @@
         <p class="error">Your Google account is not authorised to access this application.</p>
     }
 
+    @if (AuthOpts.Value.IsLocalLoginActive)
+    {
     <form method="post" action="/api/login" @formname="login-form">
         <AntiforgeryToken />
         <div class="form-group">
@@ -32,8 +34,9 @@
         </div>
         <button type="submit">Sign In</button>
     </form>
+    }
 
-    @if (AuthOpts.Value.Windows.Enabled || AuthOpts.Value.Google.Enabled)
+    @if (AuthOpts.Value.IsLocalLoginActive && (AuthOpts.Value.Windows.Enabled || AuthOpts.Value.Google.Enabled))
     {
         <div class="login-divider"><span>or</span></div>
     }
