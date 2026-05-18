@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DbExplorer.Core.Interfaces;
 using DbExplorer.Core.Models;
 using DbExplorer.Options;
@@ -41,7 +42,7 @@ public static class LoginHandler
         {
             logger.LogWarning("Failed login attempt for user '{Username}'", username);
             audit.Log(new AuditEvent(DateTimeOffset.UtcNow, username, AuditAction.LoginFailed,
-                null, null, -1, -1, Provider: "local"));
+                null, null, -1, -1, Context: new Dictionary<string, string?> { ["provider"] = "local" }));
             return Results.Redirect("/login?error=true");
         }
 
@@ -58,7 +59,7 @@ public static class LoginHandler
 
         logger.LogInformation("User '{Username}' signed in", user.Username);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, user.Username, AuditAction.Login,
-            null, null, -1, -1, Provider: "local"));
+            null, null, -1, -1, Context: new Dictionary<string, string?> { ["provider"] = "local" }));
         return Results.Redirect("/");
     }
 

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
@@ -29,7 +30,7 @@ public sealed class DbExplorerMcpTools(
     {
         var schemas = await metadata.GetSchemasAsync(ct);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
-            null, null, schemas.Count, -1, McpTool: nameof(ListSchemas)));
+            null, null, schemas.Count, -1, Context: new Dictionary<string, string?> { ["tool"] = nameof(ListSchemas) }));
         if (!schemas.Any()) return "No schemas found.";
         return string.Join("\n", schemas.Select(s => s.SchemaName));
     }
@@ -44,7 +45,7 @@ public sealed class DbExplorerMcpTools(
     {
         var objects = await metadata.GetObjectsAsync(string.IsNullOrWhiteSpace(schema) ? null : schema, ct);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
-            schema, null, objects.Count, -1, McpTool: nameof(ListObjects)));
+            schema, null, objects.Count, -1, Context: new Dictionary<string, string?> { ["tool"] = nameof(ListObjects) }));
         if (!objects.Any()) return "No objects found.";
 
         var sb = new StringBuilder();
@@ -68,7 +69,7 @@ public sealed class DbExplorerMcpTools(
     {
         var cols = await metadata.GetColumnsAsync(schema, objectName, ct);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
-            schema, objectName, cols.Count, -1, McpTool: nameof(GetColumns)));
+            schema, objectName, cols.Count, -1, Context: new Dictionary<string, string?> { ["tool"] = nameof(GetColumns) }));
         if (!cols.Any()) return "No columns found.";
 
         var sb = new StringBuilder();
@@ -92,7 +93,7 @@ public sealed class DbExplorerMcpTools(
     {
         var indexes = await metadata.GetIndexesAsync(schema, tableName, ct);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
-            schema, tableName, indexes.Count, -1, McpTool: nameof(GetIndexes)));
+            schema, tableName, indexes.Count, -1, Context: new Dictionary<string, string?> { ["tool"] = nameof(GetIndexes) }));
         if (!indexes.Any()) return "No indexes found.";
 
         var sb = new StringBuilder();
@@ -115,7 +116,7 @@ public sealed class DbExplorerMcpTools(
     {
         var fks = await metadata.GetForeignKeysAsync(schema, tableName, ct);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
-            schema, tableName, fks.Count, -1, McpTool: nameof(GetForeignKeys)));
+            schema, tableName, fks.Count, -1, Context: new Dictionary<string, string?> { ["tool"] = nameof(GetForeignKeys) }));
         if (!fks.Any()) return "No foreign keys found.";
 
         var sb = new StringBuilder();
@@ -134,7 +135,7 @@ public sealed class DbExplorerMcpTools(
     {
         var def = await metadata.GetObjectDefinitionAsync(schema, objectName, ct);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
-            schema, objectName, def is null ? 0 : 1, -1, McpTool: nameof(GetDefinition)));
+            schema, objectName, def is null ? 0 : 1, -1, Context: new Dictionary<string, string?> { ["tool"] = nameof(GetDefinition) }));
         if (def is null) return $"No definition found for {schema}.{objectName}.";
         return def.Definition ?? $"Definition for {schema}.{objectName} is empty.";
     }
@@ -163,7 +164,7 @@ public sealed class DbExplorerMcpTools(
         }
 
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
-            null, null, result.Rows.Count, result.ElapsedMs, Sql: sql, McpTool: nameof(RunSelectQuery)));
+            null, null, result.Rows.Count, result.ElapsedMs, Sql: sql, Context: new Dictionary<string, string?> { ["tool"] = nameof(RunSelectQuery) }));
 
         if (result.Warning is not null && result.Rows.Count == 0)
             return $"Warning: {result.Warning}";

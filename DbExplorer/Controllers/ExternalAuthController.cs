@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using DbExplorer.Core.Interfaces;
 using DbExplorer.Core.Models;
 using DbExplorer.Options;
@@ -62,7 +63,7 @@ public sealed class ExternalAuthController(
 
         logger.LogInformation("Windows user '{Username}' signed in via Negotiate", username);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, username, AuditAction.Login,
-            null, null, -1, -1, Provider: "windows"));
+            null, null, -1, -1, Context: new Dictionary<string, string?> { ["provider"] = "windows" }));
 
         var safeReturn = IsLocalUrl(returnUrl) ? returnUrl : "/";
         return Redirect(safeReturn);
@@ -116,7 +117,7 @@ public sealed class ExternalAuthController(
         {
             logger.LogWarning("Google sign-in rejected: email '{Email}' not in allow-list", email);
             audit.Log(new AuditEvent(DateTimeOffset.UtcNow, email, AuditAction.LoginFailed,
-                null, null, -1, -1, Provider: "google"));
+                null, null, -1, -1, Context: new Dictionary<string, string?> { ["provider"] = "google" }));
             return Redirect("/login?error=denied");
         }
 
@@ -136,7 +137,7 @@ public sealed class ExternalAuthController(
 
         logger.LogInformation("Google user '{Email}' signed in", email);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, email, AuditAction.Login,
-            null, null, -1, -1, Provider: "google"));
+            null, null, -1, -1, Context: new Dictionary<string, string?> { ["provider"] = "google" }));
 
         var safeReturn = IsLocalUrl(returnUrl) ? returnUrl : "/";
         return Redirect(safeReturn);

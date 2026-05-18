@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace DbExplorer.Core.Models;
 
 /// <summary>
@@ -42,10 +44,8 @@ public sealed record AuditEvent(
     long ElapsedMs,
     /// <summary>For ad-hoc queries and MCP tool calls: the SQL executed.</summary>
     string? Sql = null,
-    /// <summary>For MCP tool calls: the tool name invoked.</summary>
-    string? McpTool = null,
-    /// <summary>For login events: the authentication provider used (local, windows, google).</summary>
-    string? Provider = null
+    /// <summary>Action-specific context properties (e.g. "tool", "provider"). Open-ended for future extension.</summary>
+    IReadOnlyDictionary<string, string?>? Context = null
 );
 
 public enum SortDirection

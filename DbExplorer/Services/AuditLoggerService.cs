@@ -71,15 +71,14 @@ public sealed class AuditLoggerService : IAuditLogger
         _logger.LogInformation(
             eventId,
             "AUDIT {Action} | user={Username} | schema={SchemaName} | object={ObjectName} | " +
-            "rows={RowCount} | ms={ElapsedMs} | provider={Provider} | tool={McpTool} | sql={Sql}",
+            "rows={RowCount} | ms={ElapsedMs} | context={@Context} | sql={Sql}",
             evt.Action,
             evt.Username,
             evt.SchemaName ?? "-",
             evt.ObjectName ?? "-",
             evt.RowCount,
             evt.ElapsedMs,
-            evt.Provider ?? "-",
-            evt.McpTool ?? "-",
+            evt.Context,
             sql);
         }
         catch (Exception ex)
