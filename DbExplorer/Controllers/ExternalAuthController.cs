@@ -45,7 +45,7 @@ public sealed class ExternalAuthController(
             return new EmptyResult(); // response already written by ChallengeAsync
         }
 
-        var username = result.Principal.Identity?.Name ?? "unknown";
+        var username = result.Principal.Identity?.Name ?? "anonymous";
 
         // Issue a cookie so subsequent requests are authenticated without re-negotiating.
         var claims = new[]
@@ -62,7 +62,7 @@ public sealed class ExternalAuthController(
 
         logger.LogInformation("Windows user '{Username}' signed in via Negotiate", username);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, username, AuditAction.Login,
-            null, null, 0, 0, Provider: "windows"));
+            null, null, -1, -1, Provider: "windows"));
 
         var safeReturn = IsLocalUrl(returnUrl) ? returnUrl : "/";
         return Redirect(safeReturn);
@@ -115,6 +115,8 @@ public sealed class ExternalAuthController(
         if (opts.Google.AllowList.Count > 0 && !EmailMatchesAllowList(email, opts.Google.AllowList))
         {
             logger.LogWarning("Google sign-in rejected: email '{Email}' not in allow-list", email);
+            audit.Log(new AuditEvent(DateTimeOffset.UtcNow, email, AuditAction.LoginFailed,
+                null, null, -1, -1, Provider: "google"));
             return Redirect("/login?error=denied");
         }
 
@@ -134,7 +136,7 @@ public sealed class ExternalAuthController(
 
         logger.LogInformation("Google user '{Email}' signed in", email);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, email, AuditAction.Login,
-            null, null, 0, 0, Provider: "google"));
+            null, null, -1, -1, Provider: "google"));
 
         var safeReturn = IsLocalUrl(returnUrl) ? returnUrl : "/";
         return Redirect(safeReturn);

@@ -40,6 +40,8 @@ public static class LoginHandler
         if (user is null || !BCryptHelper.Verify(password, user.PasswordHash))
         {
             logger.LogWarning("Failed login attempt for user '{Username}'", username);
+            audit.Log(new AuditEvent(DateTimeOffset.UtcNow, username, AuditAction.LoginFailed,
+                null, null, -1, -1, Provider: "local"));
             return Results.Redirect("/login?error=true");
         }
 
@@ -56,7 +58,7 @@ public static class LoginHandler
 
         logger.LogInformation("User '{Username}' signed in", user.Username);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, user.Username, AuditAction.Login,
-            null, null, 0, 0, Provider: "local"));
+            null, null, -1, -1, Provider: "local"));
         return Results.Redirect("/");
     }
 
@@ -65,9 +67,12 @@ public static class LoginHandler
 
 public static class LogoutHandler
 {
-    public static async Task<IResult> Handle(HttpContext context)
+    public static async Task<IResult> Handle(HttpContext context, IAuditLogger audit)
     {
+        var username = context.User.Identity?.Name ?? "anonymous";
         await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, username, AuditAction.Logout,
+            null, null, -1, -1));
         return Results.Redirect("/login");
     }
 }

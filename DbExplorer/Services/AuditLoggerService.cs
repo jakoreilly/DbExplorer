@@ -31,6 +31,8 @@ public sealed class AuditLoggerService : IAuditLogger
     private static readonly EventId AdHocQueryEvent     = new(1003, "AdHocQuery");
     private static readonly EventId McpToolCallEvent    = new(1004, "McpToolCall");
     private static readonly EventId LoginEvent          = new(1005, "Login");
+    private static readonly EventId LoginFailedEvent    = new(1006, "LoginFailed");
+    private static readonly EventId LogoutEvent         = new(1007, "Logout");
 
     public AuditLoggerService(
         IOptions<AuditOptions> options,
@@ -45,10 +47,12 @@ public sealed class AuditLoggerService : IAuditLogger
     public void Log(AuditEvent evt)
     {
         if (!_enabled) return;
+        try
+        {
 
         // Suppress SQL if the operator has disabled SQL capture (e.g. to avoid logging PII
         // that users might embed in query predicates).
-        var sql = _logSql ? (evt.Sql ?? "-") : "<redacted>";
+        var sql = evt.Sql is null ? "-" : (_logSql ? evt.Sql : "<redacted>");
 
         var eventId = evt.Action switch
         {
@@ -57,6 +61,8 @@ public sealed class AuditLoggerService : IAuditLogger
             AuditAction.AdHocQuery     => AdHocQueryEvent,
             AuditAction.McpToolCall    => McpToolCallEvent,
             AuditAction.Login          => LoginEvent,
+            AuditAction.LoginFailed    => LoginFailedEvent,
+            AuditAction.Logout         => LogoutEvent,
             _                          => new EventId(1000, "AuditEvent"),
         };
 
@@ -75,5 +81,10 @@ public sealed class AuditLoggerService : IAuditLogger
             evt.Provider ?? "-",
             evt.McpTool ?? "-",
             sql);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Audit log write failed for action {Action}", evt.Action);
+        }
     }
 }

@@ -15,6 +15,10 @@ public enum AuditAction
     McpToolCall,
     /// <summary>A user signed in (any provider: local, Windows, Google).</summary>
     Login,
+    /// <summary>A sign-in attempt was rejected (bad credentials, allow-list denial).</summary>
+    LoginFailed,
+    /// <summary>A user signed out.</summary>
+    Logout,
 }
 
 /// <summary>
