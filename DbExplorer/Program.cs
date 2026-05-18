@@ -4,6 +4,7 @@ using DbExplorer.Options;
 using DbExplorer.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 using Serilog;
 using System.Threading.RateLimiting;
 
@@ -77,7 +78,18 @@ builder.Services.AddOptions<QueryBuilderOptions>()
     .Bind(builder.Configuration.GetSection("QueryBuilder"))
     .ValidateDataAnnotations()
     .ValidateOnStart();
+builder.Services.AddOptions<McpOptions>()
+    .Bind(builder.Configuration.GetSection("Mcp"));
 builder.Services.AddScoped<IQueryBuilderService, QueryBuilderService>();
+
+// MCP server — only registered when enabled
+var mcpOpts = builder.Configuration.GetSection("Mcp").Get<McpOptions>() ?? new McpOptions();
+if (mcpOpts.Enabled)
+{
+    builder.Services.AddMcpServer()
+        .WithHttpTransport()
+        .WithTools<DbExplorerMcpTools>();
+}
 builder.Services.AddScoped<IDbConnectionFactory>(sp =>
     new DbConnectionFactory(
         sp.GetRequiredService<DatabaseSelectorState>(),
@@ -113,6 +125,31 @@ app.UseAuthorization();
 
 app.UseAntiforgery();
 
+// MCP Bearer token guard — must run before endpoint routing executes the handler
+if (mcpOpts.Enabled)
+{
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/mcp"))
+        {
+            var opts = context.RequestServices.GetRequiredService<IOptions<McpOptions>>().Value;
+            if (!string.IsNullOrEmpty(opts.ApiKey))
+            {
+                var authHeader = context.Request.Headers.Authorization.ToString();
+                var expected = $"Bearer {opts.ApiKey}";
+                if (!string.Equals(authHeader, expected, StringComparison.Ordinal))
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    context.Response.Headers.WWWAuthenticate = "Bearer";
+                    await context.Response.WriteAsync("Unauthorized");
+                    return;
+                }
+            }
+        }
+        await next();
+    });
+}
+
 app.MapControllers().RequireAuthorization().RequireRateLimiting("api");
 app.MapRazorComponents<DbExplorer.Components.App>()
     .AddInteractiveServerRenderMode()
@@ -123,6 +160,13 @@ app.MapRazorComponents<DbExplorer.Components.App>()
 app.MapPost("/api/login", LoginHandler.Handle).AllowAnonymous();
 // Logout is POST-only to prevent CSRF-based forced logout via GET requests (e.g. <img> tags).
 app.MapPost("/logout", (Delegate)LogoutHandler.Handle).AllowAnonymous();
+
+// MCP endpoint — protected by Bearer token, only mapped when enabled
+if (mcpOpts.Enabled)
+{
+    app.MapMcp("/mcp").AllowAnonymous()  // AllowAnonymous because auth is done by the middleware above
+        .RequireRateLimiting("api");     // share the same rate-limit policy as API routes
+}
 
 app.Run();
 

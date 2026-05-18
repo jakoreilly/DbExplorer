@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.2" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" Version="*-*" />
     <PackageReference Include="MySqlConnector" Version="2.4.0" />
     <PackageReference Include="Npgsql" Version="8.0.4" />
     <PackageReference Include="Dapper" Version="2.1.35" />

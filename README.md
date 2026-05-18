@@ -204,6 +204,65 @@ dotnet test DbExplorer.sln
 | `Profiler:EnableQueryEditor` | `true` | Show/hide the ad-hoc SQL editor panel on the Profiler page |
 | `Profiler:EnableSyntaxHighlighting` | `true` | Load CodeMirror/highlight.js from CDN for syntax highlighting; disable for air-gapped environments |
 | `QueryBuilder:Enabled` | `true` | Show/hide the Query Builder page and nav link |
+| `Mcp:Enabled` | `false` | Enable the MCP server endpoint at `/mcp` |
+| `Mcp:ApiKey` | `""` | Required Bearer token for MCP requests; leave empty to disable auth (not recommended) |
+
+---
+
+## MCP Server (Model Context Protocol)
+
+DbExplorer includes an optional read-only MCP server that exposes database exploration tools to AI assistants (GitHub Copilot, Claude Desktop, etc.).
+
+### Enabling
+
+Set `Mcp:Enabled = true` and `Mcp:ApiKey = "<strong-random-secret>"` in `appsettings.json` (or via secrets/environment variables):
+
+```json
+{
+  "Mcp": {
+    "Enabled": true,
+    "ApiKey": "your-secret-token-here"
+  }
+}
+```
+
+The MCP endpoint is available at `<app-url>/mcp` (e.g. `https://localhost:2027/mcp`).
+
+### Available tools
+
+| Tool | Description |
+|---|---|
+| `ListSchemas` | List all schemas in the current database |
+| `ListObjects` | List tables, views, and procedures in a schema |
+| `GetColumns` | Get column metadata (type, nullability, PK) for a table or view |
+| `GetIndexes` | Get index definitions for a table |
+| `GetForeignKeys` | Get foreign key relationships for a table |
+| `GetDefinition` | Get DDL source for a view, procedure, or function |
+| `RunSelectQuery` | Execute a read-only SELECT statement (max 500 rows) |
+
+### Security
+
+- All MCP requests require `Authorization: Bearer <ApiKey>` header
+- Only `SELECT`, `WITH`, `SHOW`, `EXPLAIN`, `DESCRIBE`, and `DESC` statements are allowed — the same read-only guard used by the Profiler's SQL editor
+- The MCP endpoint shares the app's rate limiting policy (120 req/min per IP)
+- The endpoint is not registered at all when `Mcp:Enabled = false`
+
+### MCP client configuration
+
+For GitHub Copilot or Claude Desktop, add to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "dbexplorer": {
+      "url": "https://localhost:2027/mcp",
+      "headers": {
+        "Authorization": "Bearer your-secret-token-here"
+      }
+    }
+  }
+}
+```
 
 ---
 
