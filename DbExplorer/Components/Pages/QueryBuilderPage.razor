@@ -11,6 +11,7 @@
 @inject IAdHocQueryService AdHocService
 @inject IQueryProfiler Profiler
 @inject DatabaseSelectorState SelectorState
+@inject DiagramInteropService DiagramInterop
 @inject IOptions<QueryBuilderOptions> QBOpts
 @inject IJSRuntime JS
 @attribute [Authorize]
@@ -43,10 +44,10 @@
 
     @* ── Mode tabs ────────────────────────────────────────────────────────── *@
     <div class="qb-mode-tabs">
-        <button class="qb-mode-tab @(_activeMode == "form" ? "qb-mode-tab--active" : "")"
-                @onclick='() => SwitchMode("form")'>⚙ Form Builder</button>
         <button class="qb-mode-tab @(_activeMode == "canvas" ? "qb-mode-tab--active" : "")"
                 @onclick='() => SwitchMode("canvas")'>◈ Visual Canvas</button>
+        <button class="qb-mode-tab @(_activeMode == "form" ? "qb-mode-tab--active" : "")"
+                @onclick='() => SwitchMode("form")'>⚙ Form Builder</button>
     </div>
 
     @if (_activeMode == "form")
@@ -311,7 +312,7 @@
 
         <div class="qb-canvas-area" @ondragover:preventDefault @ondrop="OnCanvasDrop">
             <CascadingValue Value="_blazorDiagram">
-                <DiagramCanvas></DiagramCanvas>
+                <DiagramCanvas @key="_blazorDiagram"></DiagramCanvas>
             </CascadingValue>
         </div>
     </div>
@@ -330,29 +331,18 @@
                     var srcNode = (link.Source as SinglePortAnchor)?.Port.Parent as TableDiagramNode;
                     var tgtNode = (link.Target as SinglePortAnchor)?.Port.Parent as TableDiagramNode;
                     if (srcNode is null || tgtNode is null || !_canvasJoinConfigs.TryGetValue(link.Id, out var cfg)) continue;
+                    var srcCol = srcNode.GetColumnForPort((link.Source as SinglePortAnchor)!.Port) ?? cfg.SourceColumn;
+                    var tgtCol = tgtNode.GetColumnForPort((link.Target as SinglePortAnchor)!.Port) ?? cfg.TargetColumn;
                     <div class="qb-join-row" @key="link.Id">
-                        <span class="qb-hint">@srcNode.Alias.</span>
-                        <select class="qb-select qb-select--sm" @bind="cfg.SourceColumn" @bind:after="RecompileCanvas">
-                            <option value="">— col —</option>
-                            @foreach (var col in srcNode.Columns)
-                            {
-                                <option value="@col.ColumnName">@col.ColumnName</option>
-                            }
-                        </select>
+                        @* Column names are auto-detected from the port the user dragged from *@
+                        <span class="qb-join-label">@srcNode.Alias.<strong>@srcCol</strong></span>
                         <select class="qb-select qb-select--sm" @bind="cfg.JoinType" @bind:after="RecompileCanvas">
                             @foreach (var jt in Enum.GetValues<JoinType>())
                             {
                                 <option value="@jt">@jt.ToString().ToUpperInvariant() JOIN</option>
                             }
                         </select>
-                        <span class="qb-hint">@tgtNode!.Alias.</span>
-                        <select class="qb-select qb-select--sm" @bind="cfg.TargetColumn" @bind:after="RecompileCanvas">
-                            <option value="">— col —</option>
-                            @foreach (var col in tgtNode.Columns)
-                            {
-                                <option value="@col.ColumnName">@col.ColumnName</option>
-                            }
-                        </select>
+                        <span class="qb-join-label">@tgtNode.Alias.<strong>@tgtCol</strong></span>
                     </div>
                 }
             </div>
@@ -479,7 +469,7 @@
 
     // ── Mode ──────────────────────────────────────────────────────────────────
 
-    private string _activeMode = "form"; // "form" | "canvas"
+    private string _activeMode = "canvas"; // "canvas" | "form"
 
     // ── Form-builder page state ───────────────────────────────────────────────
 
@@ -522,6 +512,8 @@
     protected override void OnInitialized()
     {
         SelectorState.OnChange += HandleDatabaseChanged;
+        DiagramInterop.OnNodeRemove  = RemoveCanvasNode;
+        DiagramInterop.OnGraphChanged = () => InvokeAsync(() => { RecompileCanvas(); StateHasChanged(); });
         InitCanvas();
     }
 
@@ -607,6 +599,22 @@
             Recompile();
     }
 
+    // ── Canvas node removal ───────────────────────────────────────────────────
+
+    private void RemoveCanvasNode(TableDiagramNode node)
+    {
+        // Remove any links connected to this node before removing the node itself
+        var connectedLinks = _blazorDiagram.Links
+            .Where(l => (l.Source is SinglePortAnchor s && s.Port.Parent == node) ||
+                        (l.Target is SinglePortAnchor t && t.Port.Parent == node))
+            .ToList();
+        foreach (var link in connectedLinks)
+            _blazorDiagram.Links.Remove(link);
+
+        _blazorDiagram.Nodes.Remove(node);
+        _ = InvokeAsync(() => { RecompileCanvas(); StateHasChanged(); });
+    }
+
     // ── Canvas drag-and-drop ──────────────────────────────────────────────────
 
     private void OnCanvasDragStart(string schema, string tableName)
@@ -631,8 +639,7 @@
         try
         {
             var cols = (await Metadata.GetColumnsAsync(schema, tableName)).ToList();
-            node.Columns          = cols;
-            node.SelectedColumns  = cols.Select(c => c.ColumnName).ToHashSet();
+            node.SetColumns(cols);
         }
         finally
         {
@@ -679,8 +686,9 @@
             var tgtNode = tgtAnchor.Port.Parent as TableDiagramNode;
             _canvasJoinConfigs[link.Id] = new CanvasJoinConfig
             {
-                SourceColumn = srcNode?.Columns.FirstOrDefault()?.ColumnName ?? "",
-                TargetColumn = tgtNode?.Columns.FirstOrDefault()?.ColumnName ?? ""
+                // Auto-populate columns from the specific ports the user connected
+                SourceColumn = srcNode?.GetColumnForPort(srcAnchor.Port) ?? srcNode?.Columns.FirstOrDefault()?.ColumnName ?? "",
+                TargetColumn = tgtNode?.GetColumnForPort(tgtAnchor.Port) ?? tgtNode?.Columns.FirstOrDefault()?.ColumnName ?? ""
             };
         }
 
@@ -712,6 +720,7 @@
             .ToList();
 
         var joins = new List<QueryJoinEdge>();
+        var seenPairs = new HashSet<(string, string)>();
         foreach (var link in _blazorDiagram.Links)
         {
             if (link.Source is not SinglePortAnchor srcAnchor || link.Target is not SinglePortAnchor tgtAnchor) continue;
@@ -719,6 +728,12 @@
             if (tgtAnchor.Port.Parent is not TableDiagramNode tgtNode)                                       continue;
             if (!_canvasJoinConfigs.TryGetValue(link.Id, out var cfg))                    continue;
             if (string.IsNullOrEmpty(cfg.SourceColumn) || string.IsNullOrEmpty(cfg.TargetColumn)) continue;
+
+            // Skip duplicate joins between the same table pair (same pair in either direction → one JOIN)
+            var pairKey = (srcNode.Alias, tgtNode.Alias);
+            var reversePairKey = (tgtNode.Alias, srcNode.Alias);
+            if (seenPairs.Contains(pairKey) || seenPairs.Contains(reversePairKey)) continue;
+            seenPairs.Add(pairKey);
 
             joins.Add(new QueryJoinEdge(
                 JoinType: cfg.JoinType,

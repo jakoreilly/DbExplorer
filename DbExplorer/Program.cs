@@ -64,6 +64,7 @@ builder.Services.AddRateLimiter(options =>
 builder.Services.AddScoped<ThemeState>();
 builder.Services.AddScoped<RecentlyViewedState>();
 builder.Services.AddScoped<DatabaseSelectorState>();
+builder.Services.AddScoped<DiagramInteropService>();
 builder.Services.AddOptions<DataBrowsingOptions>()
     .Bind(builder.Configuration.GetSection("DataBrowsing"))
     .ValidateDataAnnotations()

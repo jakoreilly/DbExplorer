@@ -11,7 +11,10 @@ A production-grade, read-only multi-database explorer built on .NET 10 ASP.NET C
 - Pageable data grid with server-side paging (max 500 rows/page, default 50), column sorting
 - CSV export of the current page
 - Object name search/filter in the left-hand tree with recently-viewed tracking
-- **Query Profiler** page — ad-hoc read-only SQL editor with EXPLAIN plan support, live server activity monitor, and per-session query history
+- **Query Builder** page — build `SELECT` queries visually:
+  - *Visual Canvas*: drag-and-drop tables onto a diagram, draw column-to-column JOIN links, select columns per table; SQL is compiled automatically
+  - *Form Builder*: step-by-step form for selecting a base table, JOINs, column selection, filtering, sorting, and row limits
+- **Query Profiler** page — ad-hoc read-only SQL editor with EXPLAIN plan support, live server activity monitor, per-session query history, and recent query statistics (requires `pg_stat_statements` on PostgreSQL)
 - Dark mode / light mode theme toggle
 - Rate limited API (120 req/min per IP)
 - Cookie-based authentication
@@ -104,15 +107,19 @@ DbExplorer.sln
 │   │   ├── MetadataService.cs
 │   │   ├── DataBrowsingService.cs
 │   │   ├── AdHocQueryService.cs   # Read-only ad-hoc SQL execution + EnsureReadOnly guard
+│   │   ├── QueryBuilderService.cs # Compiles QueryGraph → SQL
 │   │   ├── QueryProfilerService.cs# Per-circuit ring buffer of recent queries
+│   │   ├── DiagramInteropService.cs# Bridges Blazor diagram widget events to page callbacks
 │   │   ├── AuthServices.cs
 │   │   └── SqlConnectionFactory.cs
 │   ├── Options/                   # Strongly-typed configuration sections
 │   │   ├── DataBrowsingOptions.cs
-│   │   └── ProfilerOptions.cs     # EnableQueryEditor feature flag
+│   │   ├── QueryBuilderOptions.cs # Enabled feature flag
+│   │   └── ProfilerOptions.cs     # EnableQueryEditor, EnableSyntaxHighlighting feature flags
 │   ├── Components/                # Blazor components
 │   │   ├── Layout/                # MainLayout, ThemeToggle
-│   │   ├── Pages/                 # Home, ExplorerPage, Login, ProfilerPage
+│   │   ├── Pages/                 # Home, ExplorerPage, Login, ProfilerPage, QueryBuilderPage
+│   │   ├── Diagram/               # Z.Blazor.Diagrams node model (TableDiagramNode) and widget
 │   │   └── Panels/                # ColumnsPanel, IndexesPanel, ForeignKeysPanel,
 │   │                              # DefinitionPanel, TriggersPanel
 │   ├── wwwroot/css/app.css
@@ -195,6 +202,38 @@ dotnet test DbExplorer.sln
 | Flag | Default | Description |
 |------|---------|-------------|
 | `Profiler:EnableQueryEditor` | `true` | Show/hide the ad-hoc SQL editor panel on the Profiler page |
+| `Profiler:EnableSyntaxHighlighting` | `true` | Load CodeMirror/highlight.js from CDN for syntax highlighting; disable for air-gapped environments |
+| `QueryBuilder:Enabled` | `true` | Show/hide the Query Builder page and nav link |
+
+---
+
+## Query Builder
+
+The Query Builder page (at `/query-builder`) generates read-only `SELECT` queries from a visual interface. It can be enabled/disabled via `QueryBuilder:Enabled` in `appsettings.json`.
+
+### Visual Canvas
+
+Drag tables from the left-hand Explorer tree onto the canvas. Once on the canvas:
+
+- **Move** a table node by dragging its header
+- **Remove** a table node with the ✕ button in the header
+- **Select columns** with the checkboxes on each column row
+- **Create a JOIN** by dragging from a right-side port dot (●) on one table's column to a left-side port dot on another table's column — the SQL JOIN is generated automatically
+- **Change JOIN type** in the join config panel that appears below the canvas
+
+Multiple links between the same table pair are deduplicated to a single JOIN clause.
+
+### Form Builder
+
+The Form Builder provides a step-by-step panel interface:
+
+1. Choose a base schema and table
+2. Select columns
+3. Add JOINs (with schema, table, and column mapping)
+4. Add WHERE filters
+5. Choose ORDER BY and row limit
+
+SQL is recompiled live as you make changes.
 
 ---
 
