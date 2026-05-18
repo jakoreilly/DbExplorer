@@ -205,7 +205,7 @@ dotnet test DbExplorer.sln
 | `Profiler:EnableSyntaxHighlighting` | `true` | Load CodeMirror/highlight.js from CDN for syntax highlighting; disable for air-gapped environments |
 | `QueryBuilder:Enabled` | `true` | Show/hide the Query Builder page and nav link |
 | `Mcp:Enabled` | `false` | Enable the MCP server endpoint at `/mcp` |
-| `Mcp:ApiKey` | `""` | Required Bearer token for MCP requests; leave empty to disable auth (not recommended) |
+| `Mcp:ApiKey` | `""` | **Required** Bearer token when MCP is enabled; the endpoint returns HTTP 503 until a value is set |
 
 ---
 
@@ -242,6 +242,7 @@ The MCP endpoint is available at `<app-url>/mcp` (e.g. `https://localhost:2027/m
 
 ### Security
 
+- **`Mcp:ApiKey` is mandatory** — enabling MCP without setting an `ApiKey` will cause all requests to be rejected with HTTP 503 and a startup warning logged to the console. There is no unauthenticated mode.
 - All MCP requests require `Authorization: Bearer <ApiKey>` header
 - Only `SELECT`, `WITH`, `SHOW`, `EXPLAIN`, `DESCRIBE`, and `DESC` statements are allowed — the same read-only guard used by the Profiler's SQL editor
 - The MCP endpoint shares the app's rate limiting policy (120 req/min per IP)
@@ -330,3 +331,21 @@ All API endpoints require authentication. Unauthenticated requests receive `401`
 - Dapper is used for lightweight mapping of catalog query results. No ORM writes.
 - `ProblemDetails` responses are returned for all API errors.
 - Serilog writes structured logs to console and rolling daily files in `logs/`.
+
+---
+
+## Known Limitations & Future Work
+
+### Test Coverage Gaps
+
+The following areas have no automated tests:
+
+- **`DbExplorerMcpTools`** — all 7 MCP tools are untested. Unit tests should mock `IMetadataService` and `IAdHocQueryService` and verify output serialization, read-only enforcement error propagation, and row-count headers.
+- **MCP bearer token middleware** — no integration test covers the 401/503 paths. An integration test using `WebApplicationFactory` with `Mcp:Enabled = true` and varying `Authorization` headers would cover the guard logic.
+- **`BuildGraphFromCanvas` JOIN deduplication** — the logic that discards redundant links between the same table pair is only tested manually. A unit test against `QueryBuilderService` would ensure correctness.
+
+### Minor Design Notes
+
+- The `DiagramInteropService` callbacks (`OnNodeRemove`, `OnGraphChanged`) are synchronous `Action` delegates. If removal ever becomes async (e.g. server-side confirmation), they would need to be upgraded to `Func<…, Task>`.
+- Canvas `JOIN` deduplication uses the first link per table pair. If two links exist for the same pair, the second is silently dropped. A future version could surface this as a validation warning in the UI.
+- `RunSelectQuery` MCP tool row cap (500 rows) is hard-coded. A `Mcp:MaxRows` config option could be added if operators need to tune it.

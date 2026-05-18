@@ -562,6 +562,8 @@
     public void Dispose()
     {
         SelectorState.OnChange -= HandleDatabaseChanged;
+        DiagramInterop.OnNodeRemove  = null;
+        DiagramInterop.OnGraphChanged = null;
         DisposeCanvas();
     }
 

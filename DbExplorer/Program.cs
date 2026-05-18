@@ -86,6 +86,15 @@ builder.Services.AddScoped<IQueryBuilderService, QueryBuilderService>();
 var mcpOpts = builder.Configuration.GetSection("Mcp").Get<McpOptions>() ?? new McpOptions();
 if (mcpOpts.Enabled)
 {
+    if (string.IsNullOrWhiteSpace(mcpOpts.ApiKey))
+    {
+        // Log at startup so the problem is visible immediately in the console / log sink.
+        // The middleware will return HTTP 503 on every request until this is resolved.
+        Console.Error.WriteLine(
+            "[WARN] Mcp:Enabled is true but Mcp:ApiKey is not configured. " +
+            "All MCP requests will be rejected with HTTP 503 until a strong ApiKey is set.");
+    }
+
     builder.Services.AddMcpServer()
         .WithHttpTransport()
         .WithTools<DbExplorerMcpTools>();
@@ -133,17 +142,27 @@ if (mcpOpts.Enabled)
         if (context.Request.Path.StartsWithSegments("/mcp"))
         {
             var opts = context.RequestServices.GetRequiredService<IOptions<McpOptions>>().Value;
-            if (!string.IsNullOrEmpty(opts.ApiKey))
+
+            // Refuse to serve MCP requests when no API key is configured — prevents
+            // accidental exposure of database access after enabling Mcp:Enabled without
+            // setting a strong Mcp:ApiKey.
+            if (string.IsNullOrWhiteSpace(opts.ApiKey))
             {
-                var authHeader = context.Request.Headers.Authorization.ToString();
-                var expected = $"Bearer {opts.ApiKey}";
-                if (!string.Equals(authHeader, expected, StringComparison.Ordinal))
-                {
-                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                    context.Response.Headers.WWWAuthenticate = "Bearer";
-                    await context.Response.WriteAsync("Unauthorized");
-                    return;
-                }
+                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                await context.Response.WriteAsync(
+                    "MCP is enabled but Mcp:ApiKey is not configured. " +
+                    "Set a strong random secret in appsettings.json or environment variables.");
+                return;
+            }
+
+            var authHeader = context.Request.Headers.Authorization.ToString();
+            var expected = $"Bearer {opts.ApiKey}";
+            if (!string.Equals(authHeader, expected, StringComparison.Ordinal))
+            {
+                context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                context.Response.Headers.WWWAuthenticate = "Bearer";
+                await context.Response.WriteAsync("Unauthorized");
+                return;
             }
         }
         await next();

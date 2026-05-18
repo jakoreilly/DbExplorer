@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
 using DbExplorer.Core.Interfaces;
+using DbExplorer.Core.Models;
 using ModelContextProtocol.Server;
 
 namespace DbExplorer.Services;
@@ -130,7 +131,17 @@ public sealed class DbExplorerMcpTools(IMetadataService metadata, IAdHocQuerySer
         [Description("A read-only SQL SELECT statement to execute.")] string sql,
         CancellationToken ct = default)
     {
-        var result = await adhoc.ExecuteQueryAsync(sql, maxRows: 500, ct);
+        QueryResult result;
+        try
+        {
+            result = await adhoc.ExecuteQueryAsync(sql, maxRows: 500, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // EnsureReadOnly rejected the statement — return a descriptive error string
+            // rather than letting an unhandled exception propagate through the MCP framework.
+            return $"Error: {ex.Message}";
+        }
 
         if (result.Warning is not null && result.Rows.Count == 0)
             return $"Warning: {result.Warning}";

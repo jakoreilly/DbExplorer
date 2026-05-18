@@ -43,7 +43,12 @@ public sealed class TableDiagramNode : NodeModel
         Columns = cols;
         SelectedColumns = cols.Select(c => c.ColumnName).ToHashSet();
 
+        // Clear both the lookup dictionary and the base NodeModel.Ports list so that
+        // calling SetColumns a second time (e.g. on server switch) does not leave stale
+        // duplicate ports registered with Z.Blazor.Diagrams.
         _columnPorts.Clear();
+        foreach (var port in Ports.ToList())
+            RemovePort(port);
         foreach (var col in cols)
         {
             // Create a port on each side so links can be drawn in either direction
