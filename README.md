@@ -16,6 +16,8 @@ Built with .NET 10 Blazor Server. No cloud dependency. No data leaves your netwo
 | Non-technical stakeholders need to explore data without learning SQL | Visual Query Builder — drag tables, draw JOINs, get SQL instantly |
 | You want to give AI assistants (Copilot, Claude) access to your schema without risk | Built-in MCP server exposes schema and query tools behind a Bearer token |
 | Running ad-hoc queries against production is scary | The Profiler page only allows `SELECT` statements — DDL and DML are blocked server-side |
+| You need GDPR-compliant access logging | Optional structured audit log records who accessed what and when — routable to any Serilog sink |
+| You want SSO without running your own identity server | Windows Negotiate (Kerberos) and Google OAuth built-in, both feature-flagged |
 | Dark mode | Yes |
 
 ---
@@ -45,10 +47,15 @@ Expose your database schema and query execution to AI assistants via the [Model 
 - Bearer token authentication
 - Disabled by default — opt-in per deployment
 
+### Authentication
+- **Built-in credential store** — username + PBKDF2-hashed password in `appsettings.json`
+- **Windows Authentication (Negotiate/Kerberos)** — domain users sign in with one click, no password typed; disabled by default, enable with `Auth:Windows:Enabled = true`
+- **Google OAuth 2.0** — sign in with a Google account; optional email allow-list restricts access to specific domains (`*@yourcompany.com`) or individuals; disabled by default, enable with `Auth:Google:Enabled = true`
+- All providers issue the same secure session cookie after sign-in — a single auth scheme protects the whole app regardless of which provider was used
+
 ### Other
 - Dark mode / light mode toggle
 - Multi-database support — connect multiple SQL Server, MySQL, and PostgreSQL instances side-by-side
-- Cookie-based authentication with PBKDF2-hashed passwords
 - Rate-limited API (120 req/min per IP)
 
 ---
@@ -109,11 +116,13 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO dbexplorer_ro;
 
 ### Authentication
 
-DbExplorer uses ASP.NET Core cookie authentication. Users are configured in `appsettings.json` with PBKDF2-hashed passwords.
+DbExplorer supports three authentication mechanisms, all of which issue a secure ASP.NET Core session cookie after sign-in:
 
-To generate a password hash, use the built-in `Pbkdf2HashGenerator` utility or generate one with .NET's `KeyDerivation.Pbkdf2`. Replace the `PasswordHash` value in `appsettings.json` before deploying.
+1. **Built-in credential store** — username + PBKDF2-hashed password configured in `appsettings.json`. Suitable for small teams or personal deployments.
+2. **Windows Authentication (Negotiate/Kerberos)** — domain users sign in with a single click via their Windows credentials. No password typed. Enable with `Auth:Windows:Enabled = true`. See [External Authentication](#external-authentication).
+3. **Google OAuth 2.0** — sign in with a Google account, optionally restricted to specific email domains. Enable with `Auth:Google:Enabled = true`. See [External Authentication](#external-authentication).
 
-For production use, replace the simple cookie auth with Windows Authentication, Azure Entra ID (OIDC), or another enterprise provider.
+All three providers can coexist — the login page shows only the buttons for providers that are enabled.
 
 ### Rate Limiting
 
@@ -134,7 +143,7 @@ DbExplorer.sln
 │   ├── Interfaces/IServices.cs
 │   └── Validation/SqlIdentifierHelper.cs
 ├── DbExplorer/                    # ASP.NET Core Blazor Web Application
-│   ├── Controllers/               # Thin API controllers (metadata, data)
+│   ├── Controllers/               # Thin API controllers (metadata, data, external auth)
 │   ├── Services/                  # Business logic
 │   │   ├── MetadataService.cs
 │   │   ├── DataBrowsingService.cs
@@ -142,12 +151,16 @@ DbExplorer.sln
 │   │   ├── QueryBuilderService.cs # Compiles QueryGraph → SQL
 │   │   ├── QueryProfilerService.cs# Per-circuit ring buffer of recent queries
 │   │   ├── DiagramInteropService.cs# Bridges Blazor diagram widget events to page callbacks
-│   │   ├── AuthServices.cs
+│   │   ├── AuthServices.cs        # Local PBKDF2 credential login handler
+│   │   ├── AuditLoggerService.cs  # Singleton structured audit log writer
 │   │   └── SqlConnectionFactory.cs
 │   ├── Options/                   # Strongly-typed configuration sections
 │   │   ├── DataBrowsingOptions.cs
 │   │   ├── QueryBuilderOptions.cs # Enabled feature flag
-│   │   └── ProfilerOptions.cs     # EnableQueryEditor, EnableSyntaxHighlighting feature flags
+│   │   ├── ProfilerOptions.cs     # EnableQueryEditor, EnableSyntaxHighlighting feature flags
+│   │   ├── AuthOptions.cs         # Windows + Google external auth feature flags
+│   │   ├── AuditOptions.cs        # GDPR audit logging feature flag + LogSql toggle
+│   │   └── McpOptions.cs          # MCP server feature flag + ApiKey
 │   ├── Components/                # Blazor components
 │   │   ├── Layout/                # MainLayout, ThemeToggle
 │   │   ├── Pages/                 # Home, ExplorerPage, Login, ProfilerPage, QueryBuilderPage
@@ -208,20 +221,32 @@ Edit `DbExplorer/appsettings.json` (the non-secret parts):
 }
 ```
 
-To generate a PBKDF2 hash for a password, run:
+To generate a PBKDF2 hash for a new password, add a temporary line to `Program.cs` before `var builder = ...`:
+
+```csharp
+// Temporary — remove after generating hash
+if (args.Length > 0 && args[0] == "hash")
+{
+    Console.WriteLine(DbExplorer.Services.BCryptHelper.Hash(args[1]));
+    return;
+}
+```
+
+Then run:
 
 ```bash
-dotnet run --project DbExplorer -- hash "YourPassword"
+dotnet run --project DbExplorer hash "YourPassword"
 ```
+
+Copy the printed `pbkdf2:...` string into the `PasswordHash` field in `appsettings.json`, then remove the temporary code. The format is `pbkdf2:<base64-salt>:<base64-hash>` with 350,000 PBKDF2-SHA256 iterations.
 
 ### 3. Run the application
 
 ```bash
-cd DbExplorer
-dotnet run
+dotnet run --project DbExplorer
 ```
 
-Navigate to `http://localhost:5000` and sign in.
+Navigate to `https://localhost:2027` (or `http://localhost:2028`) and sign in. The port is configured in `DbExplorer/Properties/launchSettings.json`.
 
 ### 4. Run tests
 
@@ -465,7 +490,7 @@ All API endpoints require authentication. Unauthenticated requests receive `401`
 - Object definitions are only available for views, procedures, functions, and triggers (not tables — use the Columns tab).
 - Very large tables (billions of rows) will have accurate `COUNT_BIG(*)` but may return slowly; the 500-row page cap limits data transfer.
 - The CSV export only exports the currently paged result, not the full table.
-- The login page uses a simple PBKDF2-based credential store. For enterprise use, replace with OIDC/Windows Auth.
+- The login page uses a PBKDF2-based credential store by default. For enterprise use, Windows Authentication and Google OAuth are available as feature-flagged options — see [External Authentication](#external-authentication).
 
 ---
 
