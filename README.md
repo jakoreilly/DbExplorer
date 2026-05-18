@@ -22,30 +22,30 @@ Built with .NET 10 Blazor Server. No cloud dependency. No data leaves your netwo
 
 ## Features
 
-### 🔍 Schema Explorer
+### Schema Explorer
 - Browse **schemas, tables, views, stored procedures, functions, and triggers** in a live tree
 - View **columns** (type, nullability, default, primary key), **indexes**, **foreign keys**, and object **source definitions**
 - **Pageable data grid** — server-side paging up to 500 rows, column sorting, CSV export
 - **Recently-viewed** tracking and **object name search/filter**
 
-### 🏗️ Visual Query Builder
+### Visual Query Builder
 Build `SELECT` queries without writing SQL:
 - **Visual Canvas** — drag tables onto a diagram, draw column-to-column JOIN links by connecting port dots; SQL is compiled live as you work
 - **Form Builder** — step-by-step panel for selecting tables, JOINs, columns, filters, sorting, and row limits
 
-### 🔬 Query Profiler
+### Query Profiler
 - **Ad-hoc SQL editor** — run any `SELECT` (DML/DDL automatically rejected)
 - **EXPLAIN plan** viewer
 - **Live server activity** monitor (active connections/queries)
 - **Per-session query history** and **recent query statistics** (`pg_stat_statements` on PostgreSQL)
 
-### 🤖 MCP Server (AI Integration)
+### MCP Server (AI Integration)
 Expose your database schema and query execution to AI assistants via the [Model Context Protocol](https://modelcontextprotocol.io/):
 - 7 read-only tools: `ListSchemas`, `ListObjects`, `GetColumns`, `GetIndexes`, `GetForeignKeys`, `GetDefinition`, `RunSelectQuery`
 - Bearer token authentication
 - Disabled by default — opt-in per deployment
 
-### 🌙 Other
+### Other
 - Dark mode / light mode toggle
 - Multi-database support — connect multiple SQL Server, MySQL, and PostgreSQL instances side-by-side
 - Cookie-based authentication with PBKDF2-hashed passwords
