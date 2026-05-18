@@ -1,23 +1,55 @@
 # DbExplorer
 
-A production-grade, read-only multi-database explorer built on .NET 10 ASP.NET Core with a Blazor Server frontend. Supports **SQL Server**, **MySQL**, and **PostgreSQL** from a single interface.
+> **A safe, self-hosted database explorer for teams that can't — or won't — give everyone direct database access.**
+
+DbExplorer is a read-only web UI for SQL Server, MySQL, and PostgreSQL. Drop it in front of any database and give your team (developers, analysts, support engineers) a polished interface to browse schemas, run queries, and build `SELECT` statements — without handing out connection strings or risking accidental writes.
+
+Built with .NET 10 Blazor Server. No cloud dependency. No data leaves your network.
+
+---
+
+## Why DbExplorer?
+
+| Problem | How DbExplorer helps |
+|---------|----------------------|
+| You have databases in production that devs need to inspect but shouldn't have raw access to | Single, auditable endpoint with read-only enforcement at every layer |
+| Non-technical stakeholders need to explore data without learning SQL | Visual Query Builder — drag tables, draw JOINs, get SQL instantly |
+| You want to give AI assistants (Copilot, Claude) access to your schema without risk | Built-in MCP server exposes schema and query tools behind a Bearer token |
+| Running ad-hoc queries against production is scary | The Profiler page only allows `SELECT` statements — DDL and DML are blocked server-side |
+| Dark mode | Yes |
+
+---
 
 ## Features
 
-- Dynamic schema discovery at runtime — no prior knowledge of the target database required
-- Browse schemas, tables, views, stored procedures, functions, and triggers
-- View columns (with types, nullability, defaults, PK membership), indexes, foreign keys, and object definitions
-- Read object definitions (views, stored procedures, functions, triggers) in a source viewer
-- Pageable data grid with server-side paging (max 500 rows/page, default 50), column sorting
-- CSV export of the current page
-- Object name search/filter in the left-hand tree with recently-viewed tracking
-- **Query Builder** page — build `SELECT` queries visually:
-  - *Visual Canvas*: drag-and-drop tables onto a diagram, draw column-to-column JOIN links, select columns per table; SQL is compiled automatically
-  - *Form Builder*: step-by-step form for selecting a base table, JOINs, column selection, filtering, sorting, and row limits
-- **Query Profiler** page — ad-hoc read-only SQL editor with EXPLAIN plan support, live server activity monitor, per-session query history, and recent query statistics (requires `pg_stat_statements` on PostgreSQL)
-- Dark mode / light mode theme toggle
-- Rate limited API (120 req/min per IP)
-- Cookie-based authentication
+### 🔍 Schema Explorer
+- Browse **schemas, tables, views, stored procedures, functions, and triggers** in a live tree
+- View **columns** (type, nullability, default, primary key), **indexes**, **foreign keys**, and object **source definitions**
+- **Pageable data grid** — server-side paging up to 500 rows, column sorting, CSV export
+- **Recently-viewed** tracking and **object name search/filter**
+
+### 🏗️ Visual Query Builder
+Build `SELECT` queries without writing SQL:
+- **Visual Canvas** — drag tables onto a diagram, draw column-to-column JOIN links by connecting port dots; SQL is compiled live as you work
+- **Form Builder** — step-by-step panel for selecting tables, JOINs, columns, filters, sorting, and row limits
+
+### 🔬 Query Profiler
+- **Ad-hoc SQL editor** — run any `SELECT` (DML/DDL automatically rejected)
+- **EXPLAIN plan** viewer
+- **Live server activity** monitor (active connections/queries)
+- **Per-session query history** and **recent query statistics** (`pg_stat_statements` on PostgreSQL)
+
+### 🤖 MCP Server (AI Integration)
+Expose your database schema and query execution to AI assistants via the [Model Context Protocol](https://modelcontextprotocol.io/):
+- 7 read-only tools: `ListSchemas`, `ListObjects`, `GetColumns`, `GetIndexes`, `GetForeignKeys`, `GetDefinition`, `RunSelectQuery`
+- Bearer token authentication
+- Disabled by default — opt-in per deployment
+
+### 🌙 Other
+- Dark mode / light mode toggle
+- Multi-database support — connect multiple SQL Server, MySQL, and PostgreSQL instances side-by-side
+- Cookie-based authentication with PBKDF2-hashed passwords
+- Rate-limited API (120 req/min per IP)
 
 ---
 
