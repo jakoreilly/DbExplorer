@@ -35,11 +35,18 @@ public sealed class GoogleAuthOptions
 
     /// <summary>
     /// Optional email allow-list. Each entry is a glob pattern matched against the
-    /// authenticated Google account's email address:
-    ///   - Exact match:   "alice@example.com"
-    ///   - Domain:        "*@example.com"
-    ///   - Sub-domain:    "*@*.example.com"
-    ///   - Allow all:     "*@*.*"  (default when the list is empty)
+    /// authenticated Google account's email address. The <c>*</c> wildcard matches any
+    /// sequence of characters, including dots and hyphens.
+    ///
+    /// Examples:
+    ///   - Exact match:          "alice@example.com"
+    ///   - Any @example.com:     "*@example.com"
+    ///   - Any sub-domain:       "*@*.example.com"  — also matches deeper levels like x.y.example.com
+    ///   - Any Google account:   leave the list empty (default)
+    ///
+    /// Note: <c>*</c> in the domain part is greedy — <c>*@*.example.com</c> matches
+    /// <c>user@a.example.com</c> AND <c>user@a.b.example.com</c>. If you need a single-level
+    /// sub-domain match only, enumerate each allowed sub-domain explicitly.
     ///
     /// When the list is empty, any authenticated Google account is allowed.
     /// </summary>

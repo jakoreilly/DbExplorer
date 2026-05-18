@@ -60,8 +60,10 @@ if (authOpts.Google.Enabled)
 {
     if (string.IsNullOrWhiteSpace(authOpts.Google.ClientId) || string.IsNullOrWhiteSpace(authOpts.Google.ClientSecret))
     {
-        Console.Error.WriteLine(
-            "[WARN] Auth:Google:Enabled is true but Auth:Google:ClientId or Auth:Google:ClientSecret is not configured. " +
+        // Log via Serilog so the warning reaches all configured sinks (file, console, etc.),
+        // not just the process stderr that Console.Error writes to.
+        Log.Warning(
+            "Auth:Google:Enabled is true but Auth:Google:ClientId or Auth:Google:ClientSecret is not configured. " +
             "Google sign-in will be unavailable until both values are set.");
     }
 

@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
-using System.Text.RegularExpressions;
 
 namespace DbExplorer.Controllers;
 
@@ -24,23 +23,26 @@ public sealed class ExternalAuthController(
 
     /// <summary>
     /// Triggers Windows Negotiate authentication and issues a cookie session on success.
-    /// The browser visits this endpoint, Negotiate is challenged, and on success the
-    /// user is signed in via the cookie scheme and redirected to the app root.
+    /// We manually challenge rather than using [Authorize(Scheme=Negotiate)] so the feature-flag
+    /// check runs first and returns 503 before the Negotiate handshake is even attempted.
     /// </summary>
     [HttpGet("/auth/windows")]
-    [Authorize(AuthenticationSchemes = NegotiateDefaults.AuthenticationScheme)]
     public async Task<IActionResult> WindowsSignIn([FromQuery] string returnUrl = "/")
     {
         var opts = authOptions.Value;
         if (!opts.Windows.Enabled)
             return StatusCode(StatusCodes.Status503ServiceUnavailable, "Windows authentication is not enabled.");
 
-        // At this point the Negotiate middleware has already authenticated the request.
-        var windowsIdentity = User.Identity;
-        if (windowsIdentity is null || !windowsIdentity.IsAuthenticated)
-            return Unauthorized();
+        // Manually authenticate with the Negotiate scheme so the feature-flag check above runs first.
+        var result = await HttpContext.AuthenticateAsync(NegotiateDefaults.AuthenticationScheme);
+        if (!result.Succeeded || result.Principal is null)
+        {
+            // Trigger the 401 Negotiate challenge so the browser sends NTLM/Kerberos credentials.
+            await HttpContext.ChallengeAsync(NegotiateDefaults.AuthenticationScheme);
+            return new EmptyResult(); // response already written by ChallengeAsync
+        }
 
-        var username = windowsIdentity.Name ?? "unknown";
+        var username = result.Principal.Identity?.Name ?? "unknown";
 
         // Issue a cookie so subsequent requests are authenticated without re-negotiating.
         var claims = new[]
@@ -145,15 +147,6 @@ public sealed class ExternalAuthController(
     {
         foreach (var pattern in patterns)
         {
-            // Convert glob to regex: escape dots, replace * with [^@]* or .*
-            var regexPattern = "^" + Regex.Escape(pattern)
-                .Replace(@"\*", "[^@]*")   // * in local part matches non-@ chars
-                + "$";
-
-            // Allow * in domain part to also match dots
-            regexPattern = regexPattern.Replace("[^@]*@", "[^@]*@").Replace(@"\.", "\\.");
-
-            // Simpler approach: build a proper glob-to-regex
             if (GlobMatches(pattern, email))
                 return true;
         }
@@ -215,6 +208,6 @@ public sealed class ExternalAuthController(
             : a == b;
 
     /// <summary>Prevents open redirect attacks by allowing only local (same-origin) URLs.</summary>
-    private bool IsLocalUrl(string url) =>
+    private static bool IsLocalUrl(string url) =>
         !string.IsNullOrEmpty(url) && url.StartsWith('/') && !url.StartsWith("//") && !url.StartsWith("/\\");
 }

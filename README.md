@@ -404,9 +404,11 @@ Allow users to sign in with their Google account. Optionally restrict access to 
 | Pattern | Meaning |
 |---------|---------|
 | `*@yourcompany.com` | Anyone with a `yourcompany.com` Google account |
-| `*@*.yourcompany.com` | Any sub-domain of `yourcompany.com` |
+| `*@*.yourcompany.com` | Any sub-domain of `yourcompany.com` (greedy — also matches deeper levels like `a.b.yourcompany.com`) |
 | `alice@gmail.com` | Exact match — one specific account |
 | *(empty list)* | Any authenticated Google account is allowed |
+
+> **Note**: `*` is a greedy wildcard that matches dots and hyphens. If you need to restrict to a single sub-domain level, list each allowed sub-domain explicitly (e.g. `*@app.yourcompany.com`, `*@api.yourcompany.com`).
 
 ---
 
