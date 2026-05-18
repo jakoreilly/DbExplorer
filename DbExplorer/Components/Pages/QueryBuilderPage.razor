@@ -13,6 +13,8 @@
 @inject DatabaseSelectorState SelectorState
 @inject DiagramInteropService DiagramInterop
 @inject IOptions<QueryBuilderOptions> QBOpts
+@inject IAuditLogger Audit
+@inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 @attribute [Authorize]
 @rendermode InteractiveServer
@@ -491,6 +493,7 @@
     private string? _queryError;
     private bool _isRunning;
     private string _copiedLabel = "Copy SQL";
+    private string _username = "anonymous";
 
     private bool _panel1Open = true;
     private bool _panel2Open = true;
@@ -520,6 +523,8 @@
     protected override async Task OnInitializedAsync()
     {
         _schemas = (await Metadata.GetSchemasAsync()).ToList();
+        var authState = await AuthState.GetAuthenticationStateAsync();
+        _username = authState.User.Identity?.Name ?? "anonymous";
     }
 
     private int _dbGeneration;
@@ -1028,6 +1033,8 @@
             var result = await AdHocService.ExecuteQueryAsync(_compiledSql, _rowLimit > 0 ? _rowLimit : 1000);
             _queryResult = result;
             Profiler.Record(SelectorState.Current.Provider.ToString(), _compiledSql, result.ElapsedMs, result.Rows.Count);
+            Audit.Log(new AuditEvent(DateTimeOffset.UtcNow, _username, AuditAction.AdHocQuery,
+                null, null, result.Rows.Count, result.ElapsedMs, Sql: _compiledSql));
         }
         catch (Exception ex)
         {
