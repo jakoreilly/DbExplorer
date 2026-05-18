@@ -13,6 +13,8 @@ public enum AuditAction
     AdHocQuery,
     /// <summary>An MCP tool call accessed schema metadata or ran a query.</summary>
     McpToolCall,
+    /// <summary>A user signed in (any provider: local, Windows, Google).</summary>
+    Login,
 }
 
 /// <summary>
@@ -37,7 +39,9 @@ public sealed record AuditEvent(
     /// <summary>For ad-hoc queries and MCP tool calls: the SQL executed.</summary>
     string? Sql = null,
     /// <summary>For MCP tool calls: the tool name invoked.</summary>
-    string? McpTool = null
+    string? McpTool = null,
+    /// <summary>For login events: the authentication provider used (local, windows, google).</summary>
+    string? Provider = null
 );
 
 public enum SortDirection

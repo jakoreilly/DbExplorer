@@ -30,6 +30,7 @@ public sealed class AuditLoggerService : IAuditLogger
     private static readonly EventId DataAccessEvent     = new(1002, "DataAccess");
     private static readonly EventId AdHocQueryEvent     = new(1003, "AdHocQuery");
     private static readonly EventId McpToolCallEvent    = new(1004, "McpToolCall");
+    private static readonly EventId LoginEvent          = new(1005, "Login");
 
     public AuditLoggerService(
         IOptions<AuditOptions> options,
@@ -55,6 +56,7 @@ public sealed class AuditLoggerService : IAuditLogger
             AuditAction.DataAccess     => DataAccessEvent,
             AuditAction.AdHocQuery     => AdHocQueryEvent,
             AuditAction.McpToolCall    => McpToolCallEvent,
+            AuditAction.Login          => LoginEvent,
             _                          => new EventId(1000, "AuditEvent"),
         };
 
@@ -63,13 +65,14 @@ public sealed class AuditLoggerService : IAuditLogger
         _logger.LogInformation(
             eventId,
             "AUDIT {Action} | user={Username} | schema={SchemaName} | object={ObjectName} | " +
-            "rows={RowCount} | ms={ElapsedMs} | tool={McpTool} | sql={Sql}",
+            "rows={RowCount} | ms={ElapsedMs} | provider={Provider} | tool={McpTool} | sql={Sql}",
             evt.Action,
             evt.Username,
             evt.SchemaName ?? "-",
             evt.ObjectName ?? "-",
             evt.RowCount,
             evt.ElapsedMs,
+            evt.Provider ?? "-",
             evt.McpTool ?? "-",
             sql);
     }

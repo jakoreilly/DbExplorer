@@ -1,3 +1,5 @@
+using DbExplorer.Core.Interfaces;
+using DbExplorer.Core.Models;
 using DbExplorer.Options;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -15,6 +17,7 @@ public static class LoginHandler
         HttpContext context,
         IConfiguration config,
         IOptions<AuthOptions> authOptions,
+        IAuditLogger audit,
         ILogger<Program> logger)
     {
         // Reject the request when the local credential store has been explicitly disabled
@@ -52,6 +55,8 @@ public static class LoginHandler
             new AuthenticationProperties { IsPersistent = false });
 
         logger.LogInformation("User '{Username}' signed in", user.Username);
+        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, user.Username, AuditAction.Login,
+            null, null, 0, 0, Provider: "local"));
         return Results.Redirect("/");
     }
 

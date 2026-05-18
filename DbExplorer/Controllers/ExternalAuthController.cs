@@ -1,3 +1,5 @@
+using DbExplorer.Core.Interfaces;
+using DbExplorer.Core.Models;
 using DbExplorer.Options;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -17,6 +19,7 @@ namespace DbExplorer.Controllers;
 [ApiController]
 public sealed class ExternalAuthController(
     IOptions<AuthOptions> authOptions,
+    IAuditLogger audit,
     ILogger<ExternalAuthController> logger) : ControllerBase
 {
     // ── Windows Auth ──────────────────────────────────────────────────────────
@@ -58,6 +61,8 @@ public sealed class ExternalAuthController(
             new AuthenticationProperties { IsPersistent = false });
 
         logger.LogInformation("Windows user '{Username}' signed in via Negotiate", username);
+        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, username, AuditAction.Login,
+            null, null, 0, 0, Provider: "windows"));
 
         var safeReturn = IsLocalUrl(returnUrl) ? returnUrl : "/";
         return Redirect(safeReturn);
@@ -128,6 +133,8 @@ public sealed class ExternalAuthController(
             new AuthenticationProperties { IsPersistent = false });
 
         logger.LogInformation("Google user '{Email}' signed in", email);
+        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, email, AuditAction.Login,
+            null, null, 0, 0, Provider: "google"));
 
         var safeReturn = IsLocalUrl(returnUrl) ? returnUrl : "/";
         return Redirect(safeReturn);
