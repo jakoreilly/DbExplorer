@@ -1,5 +1,45 @@
 namespace DbExplorer.Core.Models;
 
+/// <summary>
+/// The category of data access operation that triggered an audit event.
+/// </summary>
+public enum AuditAction
+{
+    /// <summary>User browsed object metadata (columns, indexes, foreign keys, definition).</summary>
+    MetadataAccess,
+    /// <summary>User browsed paged table/view data or exported as CSV.</summary>
+    DataAccess,
+    /// <summary>User ran an ad-hoc SELECT query via the Profiler.</summary>
+    AdHocQuery,
+    /// <summary>An MCP tool call accessed schema metadata or ran a query.</summary>
+    McpToolCall,
+}
+
+/// <summary>
+/// Immutable record of a single data access event for audit/GDPR purposes.
+/// Row contents are never included.
+/// </summary>
+public sealed record AuditEvent(
+    /// <summary>UTC timestamp of the event.</summary>
+    DateTimeOffset Timestamp,
+    /// <summary>Authenticated username, or "anonymous" if unavailable.</summary>
+    string Username,
+    /// <summary>Category of the access.</summary>
+    AuditAction Action,
+    /// <summary>Database schema involved, if applicable.</summary>
+    string? SchemaName,
+    /// <summary>Table/view/object name involved, if applicable.</summary>
+    string? ObjectName,
+    /// <summary>Number of rows returned or affected. -1 if not applicable.</summary>
+    int RowCount,
+    /// <summary>Elapsed time in milliseconds. -1 if not measured.</summary>
+    long ElapsedMs,
+    /// <summary>For ad-hoc queries and MCP tool calls: the SQL executed.</summary>
+    string? Sql = null,
+    /// <summary>For MCP tool calls: the tool name invoked.</summary>
+    string? McpTool = null
+);
+
 public enum SortDirection
 {
     Ascending = 0,

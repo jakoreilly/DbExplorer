@@ -7,7 +7,6 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Serilog;
 using System.Threading.RateLimiting;
-
 var builder = WebApplication.CreateBuilder(args);
 
 if (builder.Environment.IsDevelopment())
@@ -110,6 +109,13 @@ builder.Services.AddScoped<IMetadataService, MetadataService>();
 builder.Services.AddScoped<IDataBrowsingService, DataBrowsingService>();
 builder.Services.AddScoped<IQueryProfiler, QueryProfilerService>();
 builder.Services.AddScoped<IAdHocQueryService, AdHocQueryService>();
+
+// Audit logging
+builder.Services.AddOptions<AuditOptions>().Bind(builder.Configuration.GetSection("Audit"));
+builder.Services.AddSingleton<IAuditLogger, AuditLoggerService>();
+
+// IHttpContextAccessor is used by DbExplorerMcpTools to resolve the caller's username
+builder.Services.AddHttpContextAccessor();
 
 // ── App ───────────────────────────────────────────────────────────────────────
 var app = builder.Build();

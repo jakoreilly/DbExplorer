@@ -14,9 +14,11 @@ namespace DbExplorer.Controllers;
 [Produces("application/json")]
 public sealed class DataController(
     IDataBrowsingService dataBrowsing,
+    IAuditLogger audit,
     IOptions<DataBrowsingOptions> options,
     ILogger<DataController> logger) : ControllerBase
 {
+    private string Username => User.Identity?.Name ?? "anonymous";
     [HttpGet("page")]
     [ProducesResponseType<PagedResult<DataRow>>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -48,6 +50,8 @@ public sealed class DataController(
                 },
                 ct);
 
+            audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.DataAccess,
+                schema, objectName, result.Items.Count, -1));
             return Ok(result);
         }
         catch (ArgumentException ex)
@@ -115,6 +119,8 @@ public sealed class DataController(
             var fileName = normalizedScope == "all"
                 ? $"{schema}_{objectName}_all.csv"
                 : $"{schema}_{objectName}_page{page}.csv";
+            audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.DataAccess,
+                schema, objectName, result.Items.Count, -1));
             return File(Encoding.UTF8.GetBytes(csv), "text/csv", fileName);
         }
         catch (ArgumentException ex)

@@ -238,6 +238,7 @@ dotnet test DbExplorer.sln
 | `QueryBuilder:Enabled` | `true` | Show/hide the Query Builder page and nav link |
 | `Mcp:Enabled` | `false` | Enable the MCP server endpoint at `/mcp` |
 | `Mcp:ApiKey` | `""` | **Required** Bearer token when MCP is enabled; the endpoint returns HTTP 503 until a value is set |
+| `Audit:Enabled` | `false` | Enable GDPR audit logging — records who accessed what and when (no row data) |
 
 ---
 
@@ -296,6 +297,58 @@ For GitHub Copilot or Claude Desktop, add to your MCP config:
   }
 }
 ```
+
+---
+
+## Audit Logging (GDPR)
+
+Enable structured access logging for compliance and incident response by setting `Audit:Enabled = true`:
+
+```json
+{
+  "Audit": {
+    "Enabled": true
+  }
+}
+```
+
+### What is logged
+
+Every successful data access operation emits a structured log event under the `DbExplorer.Audit` logger category:
+
+| Field | Description |
+|-------|-------------|
+| `Action` | `MetadataAccess`, `DataAccess`, `AdHocQuery`, or `McpToolCall` |
+| `Username` | Authenticated user from the session cookie |
+| `SchemaName` | Schema involved (if applicable) |
+| `ObjectName` | Table/view/object accessed (if applicable) |
+| `RowCount` | Number of rows returned |
+| `ElapsedMs` | Query duration |
+| `Sql` | SQL text for ad-hoc queries and MCP `RunSelectQuery` calls |
+| `McpTool` | Tool name for MCP calls |
+
+**No row data is ever logged.** Only access metadata is recorded.
+
+### Log routing
+
+Audit events are written via `ILogger` and are fully compatible with Serilog. To write them to a separate sink, filter by the `SourceContext` in your Serilog configuration:
+
+```json
+{
+  "Serilog": {
+    "Override": {
+      "DbExplorer.Services.AuditLoggerService": "Information"
+    },
+    "WriteTo": [
+      { "Name": "File", "Args": { "path": "logs/audit-.log", "rollingInterval": "Day" } }
+    ]
+  }
+}
+```
+
+### GDPR note
+
+SQL statements from ad-hoc queries and MCP tool calls are included in audit logs because they are operational metadata. Review your data classification policy before enabling if users may embed personal data in query predicates (e.g. `WHERE email = 'user@example.com'`).
 
 ---
 
@@ -372,7 +425,8 @@ All API endpoints require authentication. Unauthenticated requests receive `401`
 
 The following areas have no automated tests:
 
-- **`DbExplorerMcpTools`** — all 7 MCP tools are untested. Unit tests should mock `IMetadataService` and `IAdHocQueryService` and verify output serialization, read-only enforcement error propagation, and row-count headers.
+- **`DbExplorerMcpTools`** — all 7 MCP tools are untested. Unit tests should mock `IMetadataService`, `IAdHocQueryService`, and `IAuditLogger`, and verify output serialization, read-only enforcement error propagation, and row-count headers.
+- **`AuditLoggerService`** — no unit test; verify the no-op behaviour when `Enabled = false` and the log message format when `Enabled = true`.
 - **MCP bearer token middleware** — no integration test covers the 401/503 paths. An integration test using `WebApplicationFactory` with `Mcp:Enabled = true` and varying `Authorization` headers would cover the guard logic.
 - **`BuildGraphFromCanvas` JOIN deduplication** — the logic that discards redundant links between the same table pair is only tested manually. A unit test against `QueryBuilderService` would ensure correctness.
 

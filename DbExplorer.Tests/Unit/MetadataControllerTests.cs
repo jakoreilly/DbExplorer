@@ -14,7 +14,7 @@ public class MetadataControllerTests
 {
     private static MetadataController CreateController(IMetadataService svc)
     {
-        var controller = new MetadataController(svc, NullLogger<MetadataController>.Instance);
+        var controller = new MetadataController(svc, Mock.Of<IAuditLogger>(), NullLogger<MetadataController>.Instance);
         controller.ControllerContext = new ControllerContext
         {
             HttpContext = new DefaultHttpContext()

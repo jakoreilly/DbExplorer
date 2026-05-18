@@ -8,6 +8,8 @@
 @inject IQueryProfiler Profiler
 @inject DatabaseSelectorState SelectorState
 @inject IOptions<ProfilerOptions> ProfilerOpts
+@inject IAuditLogger Audit
+@inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 @inject ThemeState ThemeState
 @implements IDisposable
@@ -502,6 +504,10 @@
             queryResult = await AdHocService.ExecuteQueryAsync(queryText.Trim());
             Profiler.Record(SelectorState.Current.Provider.ToString(), queryText.Trim(),
                 queryResult.ElapsedMs, queryResult.Rows.Count);
+            var authState = await AuthState.GetAuthenticationStateAsync();
+            var username = authState.User.Identity?.Name ?? "anonymous";
+            Audit.Log(new AuditEvent(DateTimeOffset.UtcNow, username, AuditAction.AdHocQuery,
+                null, null, queryResult.Rows.Count, queryResult.ElapsedMs, Sql: queryText.Trim()));
         }
         catch (InvalidOperationException ex)
         {

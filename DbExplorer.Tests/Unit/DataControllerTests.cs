@@ -18,6 +18,7 @@ public class DataControllerTests
     {
         var controller = new DataController(
             svc,
+            Mock.Of<IAuditLogger>(),
             Microsoft.Extensions.Options.Options.Create(new DataBrowsingOptions()),
             NullLogger<DataController>.Instance);
         controller.ControllerContext = new ControllerContext

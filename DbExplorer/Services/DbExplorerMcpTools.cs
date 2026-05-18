@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using DbExplorer.Core.Interfaces;
 using DbExplorer.Core.Models;
+using Microsoft.AspNetCore.Http;
 using ModelContextProtocol.Server;
 
 namespace DbExplorer.Services;
@@ -12,8 +13,14 @@ namespace DbExplorer.Services;
 /// All methods are stateless and rely on the DI-provided services, which are scoped per request.
 /// </summary>
 [McpServerToolType]
-public sealed class DbExplorerMcpTools(IMetadataService metadata, IAdHocQueryService adhoc)
+public sealed class DbExplorerMcpTools(
+    IMetadataService metadata,
+    IAdHocQueryService adhoc,
+    IAuditLogger audit,
+    IHttpContextAccessor httpContextAccessor)
 {
+    private string Username =>
+        httpContextAccessor.HttpContext?.User.Identity?.Name ?? "mcp-client";
     // ── Schema / object discovery ─────────────────────────────────────────────
 
     [McpServerTool]
@@ -21,6 +28,8 @@ public sealed class DbExplorerMcpTools(IMetadataService metadata, IAdHocQuerySer
     public async Task<string> ListSchemas(CancellationToken ct = default)
     {
         var schemas = await metadata.GetSchemasAsync(ct);
+        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
+            null, null, schemas.Count, -1, McpTool: nameof(ListSchemas)));
         if (!schemas.Any()) return "No schemas found.";
         return string.Join("\n", schemas.Select(s => s.SchemaName));
     }
@@ -34,6 +43,8 @@ public sealed class DbExplorerMcpTools(IMetadataService metadata, IAdHocQuerySer
         CancellationToken ct = default)
     {
         var objects = await metadata.GetObjectsAsync(string.IsNullOrWhiteSpace(schema) ? null : schema, ct);
+        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
+            schema, null, objects.Count, -1, McpTool: nameof(ListObjects)));
         if (!objects.Any()) return "No objects found.";
 
         var sb = new StringBuilder();
@@ -56,6 +67,8 @@ public sealed class DbExplorerMcpTools(IMetadataService metadata, IAdHocQuerySer
         CancellationToken ct = default)
     {
         var cols = await metadata.GetColumnsAsync(schema, objectName, ct);
+        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
+            schema, objectName, cols.Count, -1, McpTool: nameof(GetColumns)));
         if (!cols.Any()) return "No columns found.";
 
         var sb = new StringBuilder();
@@ -78,6 +91,8 @@ public sealed class DbExplorerMcpTools(IMetadataService metadata, IAdHocQuerySer
         CancellationToken ct = default)
     {
         var indexes = await metadata.GetIndexesAsync(schema, tableName, ct);
+        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
+            schema, tableName, indexes.Count, -1, McpTool: nameof(GetIndexes)));
         if (!indexes.Any()) return "No indexes found.";
 
         var sb = new StringBuilder();
@@ -99,6 +114,8 @@ public sealed class DbExplorerMcpTools(IMetadataService metadata, IAdHocQuerySer
         CancellationToken ct = default)
     {
         var fks = await metadata.GetForeignKeysAsync(schema, tableName, ct);
+        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
+            schema, tableName, fks.Count, -1, McpTool: nameof(GetForeignKeys)));
         if (!fks.Any()) return "No foreign keys found.";
 
         var sb = new StringBuilder();
@@ -116,6 +133,8 @@ public sealed class DbExplorerMcpTools(IMetadataService metadata, IAdHocQuerySer
         CancellationToken ct = default)
     {
         var def = await metadata.GetObjectDefinitionAsync(schema, objectName, ct);
+        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
+            schema, objectName, def is null ? 0 : 1, -1, McpTool: nameof(GetDefinition)));
         if (def is null) return $"No definition found for {schema}.{objectName}.";
         return def.Definition ?? $"Definition for {schema}.{objectName} is empty.";
     }
@@ -142,6 +161,9 @@ public sealed class DbExplorerMcpTools(IMetadataService metadata, IAdHocQuerySer
             // rather than letting an unhandled exception propagate through the MCP framework.
             return $"Error: {ex.Message}";
         }
+
+        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
+            null, null, result.Rows.Count, result.ElapsedMs, Sql: sql, McpTool: nameof(RunSelectQuery)));
 
         if (result.Warning is not null && result.Rows.Count == 0)
             return $"Warning: {result.Warning}";

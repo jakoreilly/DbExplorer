@@ -2,6 +2,18 @@ using DbExplorer.Core.Models;
 
 namespace DbExplorer.Core.Interfaces;
 
+/// <summary>
+/// Records a structured audit event for a data access action.
+/// Implementations must never log actual row data — only access metadata.
+/// </summary>
+public interface IAuditLogger
+{
+    /// <summary>
+    /// Logs a single access event. Safe to call fire-and-forget from any thread.
+    /// </summary>
+    void Log(AuditEvent evt);
+}
+
 public interface IIdentifierValidator
 {
     /// <summary>
