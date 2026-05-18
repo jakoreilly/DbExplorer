@@ -240,6 +240,8 @@ dotnet test DbExplorer.sln
 | `Mcp:ApiKey` | `""` | **Required** Bearer token when MCP is enabled; the endpoint returns HTTP 503 until a value is set |
 | `Audit:Enabled` | `false` | Enable GDPR audit logging — records who accessed what and when (no row data) |
 | `Audit:LogSql` | `true` | Include SQL text in audit records for ad-hoc queries and MCP `RunSelectQuery` calls; set `false` if users may embed PII in predicates |
+| `Auth:Windows:Enabled` | `false` | Enable Windows Negotiate (Kerberos/NTLM) sign-in; requires a domain-joined server |
+| `Auth:Google:Enabled` | `false` | Enable Google OAuth 2.0 sign-in; requires `ClientId` and `ClientSecret` from Google Cloud Console |
 
 ---
 
@@ -351,6 +353,60 @@ Audit events are written via `ILogger` and are fully compatible with Serilog. To
 ### GDPR note
 
 SQL statements from ad-hoc queries and MCP tool calls are included in audit logs because they are operational metadata. Review your data classification policy before enabling if users may embed personal data in query predicates (e.g. `WHERE email = 'user@example.com'`). Set `Audit:LogSql = false` to record all other access metadata without capturing the SQL text.
+
+---
+
+## External Authentication
+
+Beyond the built-in username/password login, DbExplorer supports two additional authentication providers, both feature-flagged and disabled by default.
+
+### Windows Authentication (Negotiate/Kerberos)
+
+For enterprise environments on a Windows domain, users can sign in with their domain credentials via the "Sign in with Windows" button on the login page. The server negotiates via Kerberos or NTLM — no password is typed.
+
+**Requirements**: IIS with Windows Authentication enabled, or Kestrel running on a domain-joined server.
+
+```json
+{
+  "Auth": {
+    "Windows": { "Enabled": true }
+  }
+}
+```
+
+### Google OAuth 2.0
+
+Allow users to sign in with their Google account. Optionally restrict access to specific email addresses or entire domains using wildcard patterns.
+
+**Setup**:
+1. Create an OAuth 2.0 client in [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+2. Add `https://<your-app>/signin-google` as an authorised redirect URI.
+3. Store the client secret in [user secrets](https://learn.microsoft.com/en-us/aspnet/core/security/app-secrets) or an environment variable — **never commit it to source control**.
+
+```json
+{
+  "Auth": {
+    "Google": {
+      "Enabled": true,
+      "ClientId": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+      "ClientSecret": "stored-in-user-secrets-or-env-var",
+      "AllowList": [
+        "*@yourcompany.com",
+        "contractor@partner.com"
+      ]
+    }
+  }
+}
+```
+
+#### AllowList patterns
+
+| Pattern | Meaning |
+|---------|---------|
+| `*@yourcompany.com` | Anyone with a `yourcompany.com` Google account |
+| `*@*.yourcompany.com` | Any sub-domain of `yourcompany.com` |
+| `alice@gmail.com` | Exact match — one specific account |
+| *(empty list)* | Any authenticated Google account is allowed |
 
 ---
 

@@ -93,7 +93,6 @@ Unit/
  Microsoft.AspNetCore.Components.Forms.dll
  Microsoft.AspNetCore.Components.Server.dll
  Microsoft.AspNetCore.Components.Web.dll
- Microsoft.AspNetCore.Connections.Abstractions.dll
  Microsoft.AspNetCore.CookiePolicy.dll
  Microsoft.AspNetCore.Cors.dll
  Microsoft.AspNetCore.Cryptography.Internal.dll
@@ -165,7 +164,6 @@ Unit/
  Microsoft.AspNetCore.StaticFiles.dll
  Microsoft.AspNetCore.WebSockets.dll
  Microsoft.AspNetCore.WebUtilities.dll
- Microsoft.Extensions.Caching.Memory.dll
  Microsoft.Extensions.Configuration.Binder.dll
  Microsoft.Extensions.Configuration.CommandLine.dll
  Microsoft.Extensions.Configuration.dll
@@ -180,7 +178,6 @@ Unit/
  Microsoft.Extensions.Diagnostics.dll
  Microsoft.Extensions.Diagnostics.HealthChecks.Abstractions.dll
  Microsoft.Extensions.Diagnostics.HealthChecks.dll
- Microsoft.Extensions.Features.dll
  Microsoft.Extensions.FileProviders.Composite.dll
  Microsoft.Extensions.FileProviders.Embedded.dll
  Microsoft.Extensions.FileProviders.Physical.dll
@@ -384,23 +381,28 @@ Unit/
  dapper/2.1.35/lib/net7.0/Dapper.dll
  fluentassertions/6.12.1/lib/net6.0/FluentAssertions.dll
  humanizer.core/2.8.26/lib/netstandard2.0/Humanizer.dll
+ microsoft.aspnetcore.authentication.google/10.0.8/lib/net10.0/Microsoft.AspNetCore.Authentication.Google.dll
+ microsoft.aspnetcore.authentication.negotiate/10.0.8/lib/net10.0/Microsoft.AspNetCore.Authentication.Negotiate.dll
  microsoft.aspnetcore.authentication.openidconnect/10.0.0-preview.4.25258.110/lib/net10.0/Microsoft.AspNetCore.Authentication.OpenIdConnect.dll
+ microsoft.aspnetcore.connections.abstractions/10.0.8/lib/net10.0/Microsoft.AspNetCore.Connections.Abstractions.dll
  microsoft.aspnetcore.mvc.testing/10.0.0-preview.4.25258.110/lib/net10.0/Microsoft.AspNetCore.Mvc.Testing.dll
  microsoft.aspnetcore.testhost/10.0.0-preview.4.25258.110/lib/net10.0/Microsoft.AspNetCore.TestHost.dll
  microsoft.bcl.asyncinterfaces/1.1.1/ref/netstandard2.1/Microsoft.Bcl.AsyncInterfaces.dll
  microsoft.codecoverage/17.12.0/lib/netcoreapp3.1/Microsoft.VisualStudio.CodeCoverage.Shim.dll
  microsoft.data.sqlclient/5.2.2/ref/net8.0/Microsoft.Data.SqlClient.dll
  microsoft.extensions.ai.abstractions/10.5.2/lib/net10.0/Microsoft.Extensions.AI.Abstractions.dll
- microsoft.extensions.caching.abstractions/10.0.7/lib/net10.0/Microsoft.Extensions.Caching.Abstractions.dll
+ microsoft.extensions.caching.abstractions/10.0.8/lib/net10.0/Microsoft.Extensions.Caching.Abstractions.dll
+ microsoft.extensions.caching.memory/10.0.8/lib/net10.0/Microsoft.Extensions.Caching.Memory.dll
  microsoft.extensions.configuration.abstractions/10.0.7/lib/net10.0/Microsoft.Extensions.Configuration.Abstractions.dll
- microsoft.extensions.dependencyinjection.abstractions/10.0.7/lib/net10.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll
+ microsoft.extensions.dependencyinjection.abstractions/10.0.8/lib/net10.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll
  microsoft.extensions.dependencymodel/10.0.0-preview.4.25258.110/lib/net10.0/Microsoft.Extensions.DependencyModel.dll
  microsoft.extensions.diagnostics.abstractions/10.0.7/lib/net10.0/Microsoft.Extensions.Diagnostics.Abstractions.dll
+ microsoft.extensions.features/10.0.8/lib/net10.0/Microsoft.Extensions.Features.dll
  microsoft.extensions.fileproviders.abstractions/10.0.7/lib/net10.0/Microsoft.Extensions.FileProviders.Abstractions.dll
  microsoft.extensions.hosting.abstractions/10.0.7/lib/net10.0/Microsoft.Extensions.Hosting.Abstractions.dll
- microsoft.extensions.logging.abstractions/10.0.7/lib/net10.0/Microsoft.Extensions.Logging.Abstractions.dll
- microsoft.extensions.options/10.0.7/lib/net10.0/Microsoft.Extensions.Options.dll
- microsoft.extensions.primitives/10.0.7/lib/net10.0/Microsoft.Extensions.Primitives.dll
+ microsoft.extensions.logging.abstractions/10.0.8/lib/net10.0/Microsoft.Extensions.Logging.Abstractions.dll
+ microsoft.extensions.options/10.0.8/lib/net10.0/Microsoft.Extensions.Options.dll
+ microsoft.extensions.primitives/10.0.8/lib/net10.0/Microsoft.Extensions.Primitives.dll
  microsoft.identity.client.extensions.msal/4.61.3/lib/net6.0/Microsoft.Identity.Client.Extensions.Msal.dll
  microsoft.identity.client/4.61.3/lib/net6.0/Microsoft.Identity.Client.dll
  microsoft.identitymodel.abstractions/8.0.1/lib/net9.0/Microsoft.IdentityModel.Abstractions.dll
@@ -440,6 +442,7 @@ Unit/
  svgpathproperties/1.1.2/lib/netstandard2.0/SvgPathProperties.dll
  system.clientmodel/1.0.0/lib/net6.0/System.ClientModel.dll
  system.configuration.configurationmanager/8.0.0/lib/net8.0/System.Configuration.ConfigurationManager.dll
+ system.directoryservices.protocols/10.0.8/lib/net10.0/System.DirectoryServices.Protocols.dll
  system.identitymodel.tokens.jwt/8.0.1/lib/net9.0/System.IdentityModel.Tokens.Jwt.dll
  system.memory.data/1.0.2/lib/netstandard2.0/System.Memory.Data.dll
  system.security.cryptography.protecteddata/8.0.0/lib/net8.0/System.Security.Cryptography.ProtectedData.dll
@@ -468,8 +471,8 @@ Unit/
  Microsoft.CodeAnalysis.CSharp.NetAnalyzers.dll
  Microsoft.CodeAnalysis.NetAnalyzers.dll
 <NUGET>/
- microsoft.extensions.logging.abstractions/10.0.7/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Logging.Generators.dll
- microsoft.extensions.options/10.0.7/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Options.SourceGeneration.dll
+ microsoft.extensions.logging.abstractions/10.0.8/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Logging.Generators.dll
+ microsoft.extensions.options/10.0.8/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Options.SourceGeneration.dll
  modelcontextprotocol.core/1.3.0/analyzers/dotnet/cs/ModelContextProtocol.Analyzers.dll
  xunit.analyzers/1.16.0/analyzers/dotnet/cs/
   xunit.analyzers.dll

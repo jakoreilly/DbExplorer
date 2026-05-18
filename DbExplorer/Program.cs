@@ -3,6 +3,8 @@ using DbExplorer.Core.Models;
 using DbExplorer.Options;
 using DbExplorer.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Serilog;
@@ -34,8 +36,12 @@ builder.Services.AddEndpointsApiExplorer();
 // ProblemDetails
 builder.Services.AddProblemDetails();
 
-// Authentication — cookie auth; replace with OIDC or Windows Auth as needed
-builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+// Authentication — cookie is the primary (session) scheme; external providers are feature-flagged.
+builder.Services.AddOptions<AuthOptions>().Bind(builder.Configuration.GetSection("Auth"));
+var authOpts = builder.Configuration.GetSection("Auth").Get<AuthOptions>() ?? new AuthOptions();
+
+var authBuilder = builder.Services
+    .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {
         options.LoginPath = "/login";
@@ -44,6 +50,29 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.ExpireTimeSpan = TimeSpan.FromHours(8);
         options.SlidingExpiration = true;
     });
+
+if (authOpts.Windows.Enabled)
+{
+    authBuilder.AddNegotiate();
+}
+
+if (authOpts.Google.Enabled)
+{
+    if (string.IsNullOrWhiteSpace(authOpts.Google.ClientId) || string.IsNullOrWhiteSpace(authOpts.Google.ClientSecret))
+    {
+        Console.Error.WriteLine(
+            "[WARN] Auth:Google:Enabled is true but Auth:Google:ClientId or Auth:Google:ClientSecret is not configured. " +
+            "Google sign-in will be unavailable until both values are set.");
+    }
+
+    authBuilder.AddGoogle(options =>
+    {
+        options.ClientId = authOpts.Google.ClientId;
+        options.ClientSecret = authOpts.Google.ClientSecret;
+        options.CallbackPath = "/signin-google";
+        options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    });
+}
 
 builder.Services.AddAuthorization();
 

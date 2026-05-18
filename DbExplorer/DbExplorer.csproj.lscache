@@ -58,6 +58,7 @@ TemporaryDependencyNodeTargetIdentifier=net10.0
 Components/Diagram/TableDiagramNode.cs
 Controllers/
  DataController.cs
+ ExternalAuthController.cs
  MetadataController.cs
 obj/Debug/net10.0/
  .NETCoreApp,Version=v10.0.AssemblyAttributes.cs
@@ -67,6 +68,7 @@ obj/Debug/net10.0/
  ValidatableTypeAttribute.cs
 Options/
  AuditOptions.cs
+ AuthOptions.cs
  DataBrowsingOptions.cs
  McpOptions.cs
  ProfilerOptions.cs
@@ -404,6 +406,8 @@ Services/
  azure.identity/1.11.4/lib/netstandard2.0/Azure.Identity.dll
  dapper/2.1.35/lib/net7.0/Dapper.dll
  humanizer.core/2.8.26/lib/netstandard2.0/Humanizer.dll
+ microsoft.aspnetcore.authentication.google/10.0.8/lib/net10.0/Microsoft.AspNetCore.Authentication.Google.dll
+ microsoft.aspnetcore.authentication.negotiate/10.0.8/lib/net10.0/Microsoft.AspNetCore.Authentication.Negotiate.dll
  microsoft.aspnetcore.authentication.openidconnect/10.0.0-preview.4.25258.110/lib/net10.0/Microsoft.AspNetCore.Authentication.OpenIdConnect.dll
  microsoft.bcl.asyncinterfaces/1.1.1/ref/netstandard2.1/Microsoft.Bcl.AsyncInterfaces.dll
  microsoft.data.sqlclient/5.2.2/ref/net8.0/Microsoft.Data.SqlClient.dll
@@ -436,6 +440,7 @@ Services/
  sqlkata/2.4.0/lib/netstandard2.0/SqlKata.dll
  svgpathproperties/1.1.2/lib/netstandard2.0/SvgPathProperties.dll
  system.clientmodel/1.0.0/lib/net6.0/System.ClientModel.dll
+ system.directoryservices.protocols/10.0.8/lib/net10.0/System.DirectoryServices.Protocols.dll
  system.identitymodel.tokens.jwt/8.0.1/lib/net9.0/System.IdentityModel.Tokens.Jwt.dll
  system.memory.data/1.0.2/lib/netstandard2.0/System.Memory.Data.dll
  system.security.cryptography.protecteddata/8.0.0/lib/net8.0/System.Security.Cryptography.ProtectedData.dll
