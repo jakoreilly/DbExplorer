@@ -49,8 +49,7 @@ public sealed class AuditLoggerService : IAuditLogger
         if (!_enabled) return;
         try
         {
-
-        // Suppress SQL if the operator has disabled SQL capture (e.g. to avoid logging PII
+            // Suppress SQL if the operator has disabled SQL capture (e.g. to avoid logging PII
         // that users might embed in query predicates).
         var sql = evt.Sql is null ? "-" : (_logSql ? evt.Sql : "<redacted>");
 

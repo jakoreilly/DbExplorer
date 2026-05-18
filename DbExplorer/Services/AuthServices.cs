@@ -14,6 +14,10 @@ namespace DbExplorer.Services;
 /// </summary>
 public static class LoginHandler
 {
+    // Valid-format dummy hash ensures the full PBKDF2 path executes even for non-existent
+    // usernames, preventing timing-based user enumeration.
+    private static readonly string _dummyHash = BCryptHelper.Hash("__dummy__");
+
     public static async Task<IResult> Handle(
         HttpContext context,
         IConfiguration config,
@@ -38,7 +42,11 @@ public static class LoginHandler
         var user = users.FirstOrDefault(u =>
             string.Equals(u.Username, username, StringComparison.OrdinalIgnoreCase));
 
-        if (user is null || !BCryptHelper.Verify(password, user.PasswordHash))
+        // Always run Verify to prevent timing-based user enumeration (constant-time check).
+        var checkHash = user?.PasswordHash ?? _dummyHash;
+        var credentialsOk = BCryptHelper.Verify(password, checkHash) && user is not null;
+
+        if (!credentialsOk)
         {
             logger.LogWarning("Failed login attempt for user '{Username}'", username);
             audit.Log(new AuditEvent(DateTimeOffset.UtcNow, username, AuditAction.LoginFailed,
@@ -48,7 +56,7 @@ public static class LoginHandler
 
         var claims = new List<Claim>
         {
-            new(ClaimTypes.Name, user.Username),
+            new(ClaimTypes.Name, user!.Username),
             new(ClaimTypes.Role, "Explorer")
         };
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
@@ -57,8 +65,8 @@ public static class LoginHandler
         await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal,
             new AuthenticationProperties { IsPersistent = false });
 
-        logger.LogInformation("User '{Username}' signed in", user.Username);
-        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, user.Username, AuditAction.Login,
+        logger.LogInformation("User '{Username}' signed in", user!.Username);
+        audit.Log(new AuditEvent(DateTimeOffset.UtcNow, user!.Username, AuditAction.Login,
             null, null, -1, -1, Context: new Dictionary<string, string?> { ["provider"] = "local" }));
         return Results.Redirect("/");
     }
@@ -71,9 +79,11 @@ public static class LogoutHandler
     public static async Task<IResult> Handle(HttpContext context, IAuditLogger audit)
     {
         var username = context.User.Identity?.Name ?? "anonymous";
+        var provider = context.User.FindFirstValue("auth_provider") ?? "unknown";
         await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, username, AuditAction.Logout,
-            null, null, -1, -1));
+            null, null, -1, -1,
+            Context: new Dictionary<string, string?> { ["provider"] = provider }));
         return Results.Redirect("/login");
     }
 }
