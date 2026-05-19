@@ -77,11 +77,13 @@ User-supplied values (page number, page size, search filter, column name) are **
 
 ### Query Profiler Read-Only Enforcement
 
-The `EnsureReadOnly` guard in `AdHocQueryService` strips both block and line comments from submitted SQL, then:
+The `EnsureReadOnly` guard in `AdHocQueryService` strips both block and line comments **and single-quoted string literals** from submitted SQL, then:
 
 1. Rejects multi-statement batches (`;` separator)
 2. Requires the statement to begin with `SELECT`, `WITH` (CTE), `SHOW`, `EXPLAIN`, `DESCRIBE`, or `DESC`
-3. Scans the full text for write-DML keywords (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, `EXEC`, `EXECUTE`, `MERGE`, `TRUNCATE`, `CALL`) — also blocks writable CTEs
+3. Scans the full text for write-DML keywords (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, `EXEC`, `EXECUTE`, `MERGE`, `TRUNCATE`, `CALL`, `LOAD`, `COPY`) — also blocks writable CTEs
+
+Stripping string literals before scanning prevents false-positive rejections where a keyword appears only inside a quoted value (e.g. `SELECT 'LOAD DATA' AS msg` is valid read-only SQL and is permitted).
 
 The Profiler's SQL editor can be disabled entirely via the `Profiler:EnableQueryEditor` feature flag in `appsettings.json`.
 
@@ -449,7 +451,8 @@ Drag tables from the left-hand Explorer tree onto the canvas. Once on the canvas
 - **Move** a table node by dragging its header
 - **Remove** a table node with the ✕ button in the header
 - **Select columns** with the checkboxes on each column row
-- **Create a JOIN** by dragging from a right-side port dot (●) on one table's column to a left-side port dot on another table's column — the SQL JOIN is generated automatically
+- **Create a JOIN** by dragging from a right-side port dot (●) on one table's column to a left-side port dot on another table's column — the SQL JOIN is generated automatically. **Join direction is normalised automatically** — you can start the drag from either table and the SQL will be correct.
+- **Remove a JOIN** by clicking the ✕ button on the join row in the JOIN Configuration panel below the canvas, or by deleting the link from the canvas
 - **Change JOIN type** in the join config panel that appears below the canvas
 
 Multiple links between the same table pair are deduplicated to a single JOIN clause.
@@ -514,10 +517,10 @@ The following areas have no automated tests:
 - **`DbExplorerMcpTools`** — all 7 MCP tools are untested. Unit tests should mock `IMetadataService`, `IAdHocQueryService`, and `IAuditLogger`, and verify output serialization, read-only enforcement error propagation, and row-count headers.
 - **`AuditLoggerService`** — no unit test; verify the no-op behaviour when `Enabled = false` and the log message format when `Enabled = true`.
 - **MCP bearer token middleware** — no integration test covers the 401/503 paths. An integration test using `WebApplicationFactory` with `Mcp:Enabled = true` and varying `Authorization` headers would cover the guard logic.
-- **`BuildGraphFromCanvas` JOIN deduplication** — the logic that discards redundant links between the same table pair is only tested manually. A unit test against `QueryBuilderService` would ensure correctness.
 
 ### Minor Design Notes
 
 - The `DiagramInteropService` callbacks (`OnNodeRemove`, `OnGraphChanged`) are synchronous `Action` delegates. If removal ever becomes async (e.g. server-side confirmation), they would need to be upgraded to `Func<…, Task>`.
 - Canvas `JOIN` deduplication uses the first link per table pair. If two links exist for the same pair, the second is silently dropped. A future version could surface this as a validation warning in the UI.
 - `RunSelectQuery` MCP tool row cap (500 rows) is hard-coded. A `Mcp:MaxRows` config option could be added if operators need to tune it.
+- The `/api/login` endpoint is currently covered only by the global 120 req/min rate limiter. A dedicated low-count limiter (e.g. 5 req/min per IP) would further reduce brute-force risk.
