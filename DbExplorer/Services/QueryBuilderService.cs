@@ -39,8 +39,8 @@ public sealed class QueryBuilderService : IQueryBuilderService
         else
             query.SelectRaw("*");
 
-        // JOINs
-        foreach (var join in graph.Joins)
+        // JOINs — sort topologically so each join's source is already in scope
+        foreach (var join in TopologicalSortJoins(graph.Joins, baseTable.Id))
         {
             var target = graph.Tables.FirstOrDefault(t => t.Id == join.TargetNodeId);
             if (target is null) continue;
@@ -77,6 +77,43 @@ public sealed class QueryBuilderService : IQueryBuilderService
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Sorts joins so that each join's source table alias is already reachable
+    /// (introduced by a prior join or the base FROM table) before the join is emitted.
+    /// This prevents "missing FROM-clause entry" errors when the user draws joins
+    /// in an order that doesn't match the dependency chain.
+    /// Joins that cannot be satisfied (disconnected subgraph) are appended last.
+    /// </summary>
+    private static IReadOnlyList<QueryJoinEdge> TopologicalSortJoins(
+        IReadOnlyList<QueryJoinEdge> joins, string baseTableId)
+    {
+        var reachable = new HashSet<string>(StringComparer.Ordinal) { baseTableId };
+        var remaining = new List<QueryJoinEdge>(joins);
+        var ordered   = new List<QueryJoinEdge>(joins.Count);
+
+        bool progress;
+        do
+        {
+            progress = false;
+            for (int i = remaining.Count - 1; i >= 0; i--)
+            {
+                if (reachable.Contains(remaining[i].SourceNodeId))
+                {
+                    ordered.Add(remaining[i]);
+                    reachable.Add(remaining[i].TargetNodeId);
+                    remaining.RemoveAt(i);
+                    progress = true;
+                }
+            }
+        }
+        while (progress && remaining.Count > 0);
+
+        // Append any disconnected joins unchanged so the SQL is still generated
+        // (SqlKata will produce a cross-join or the DB will reject it, both preferable to silently dropping data).
+        ordered.AddRange(remaining);
+        return ordered;
+    }
 
     private static List<string> BuildSelectColumns(QueryGraph graph)
     {
