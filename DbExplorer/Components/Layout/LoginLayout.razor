@@ -1,0 +1,38 @@
+@inherits LayoutComponentBase
+@using DbExplorer.Services
+@inject ThemeState ThemeState
+@inject IJSRuntime JS
+@implements IDisposable
+
+<div class="layout @(ThemeState.IsDarkMode ? "theme-dark" : "theme-light")">
+    @Body
+</div>
+
+@code {
+    protected override void OnInitialized()
+    {
+        ThemeState.OnChange += HandleThemeChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var savedDark = await JS.InvokeAsync<bool>("dbExplorerGetTheme");
+            ThemeState.SetDarkMode(savedDark);
+            await JS.InvokeVoidAsync("dbExplorerSetTheme", savedDark);
+        }
+        catch { }
+    }
+
+    private void HandleThemeChanged()
+    {
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        ThemeState.OnChange -= HandleThemeChanged;
+    }
+}
