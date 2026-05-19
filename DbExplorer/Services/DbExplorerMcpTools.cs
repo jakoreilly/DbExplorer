@@ -21,7 +21,7 @@ public sealed class DbExplorerMcpTools(
     IHttpContextAccessor httpContextAccessor)
 {
     private string Username =>
-        httpContextAccessor.HttpContext?.User.Identity?.Name ?? "mcp-client";
+        httpContextAccessor.HttpContext?.User.Identity?.Name ?? "anonymous";
     // ── Schema / object discovery ─────────────────────────────────────────────
 
     [McpServerTool]

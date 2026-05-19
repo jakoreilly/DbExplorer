@@ -118,10 +118,9 @@ if (mcpOpts.Enabled)
 {
     if (string.IsNullOrWhiteSpace(mcpOpts.ApiKey))
     {
-        // Log at startup so the problem is visible immediately in the console / log sink.
-        // The middleware will return HTTP 503 on every request until this is resolved.
-        Console.Error.WriteLine(
-            "[WARN] Mcp:Enabled is true but Mcp:ApiKey is not configured. " +
+        // Log at startup so the problem is visible immediately in all configured sinks.
+        Log.Warning(
+            "Mcp:Enabled is true but Mcp:ApiKey is not configured. " +
             "All MCP requests will be rejected with HTTP 503 until a strong ApiKey is set.");
     }
 

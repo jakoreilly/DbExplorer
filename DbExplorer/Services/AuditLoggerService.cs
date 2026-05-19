@@ -50,35 +50,35 @@ public sealed class AuditLoggerService : IAuditLogger
         try
         {
             // Suppress SQL if the operator has disabled SQL capture (e.g. to avoid logging PII
-        // that users might embed in query predicates).
-        var sql = evt.Sql is null ? "-" : (_logSql ? evt.Sql : "<redacted>");
+            // that users might embed in query predicates).
+            var sql = evt.Sql is null ? "-" : (_logSql ? evt.Sql : "<redacted>");
 
-        var eventId = evt.Action switch
-        {
-            AuditAction.MetadataAccess => MetadataAccessEvent,
-            AuditAction.DataAccess     => DataAccessEvent,
-            AuditAction.AdHocQuery     => AdHocQueryEvent,
-            AuditAction.McpToolCall    => McpToolCallEvent,
-            AuditAction.Login          => LoginEvent,
-            AuditAction.LoginFailed    => LoginFailedEvent,
-            AuditAction.Logout         => LogoutEvent,
-            _                          => new EventId(1000, "AuditEvent"),
-        };
+            var eventId = evt.Action switch
+            {
+                AuditAction.MetadataAccess => MetadataAccessEvent,
+                AuditAction.DataAccess     => DataAccessEvent,
+                AuditAction.AdHocQuery     => AdHocQueryEvent,
+                AuditAction.McpToolCall    => McpToolCallEvent,
+                AuditAction.Login          => LoginEvent,
+                AuditAction.LoginFailed    => LoginFailedEvent,
+                AuditAction.Logout         => LogoutEvent,
+                _                          => new EventId(1000, "AuditEvent"),
+            };
 
-        // Use structured logging so sinks (e.g. Serilog JSON) capture each field
-        // as a separate searchable property rather than a flat string.
-        _logger.LogInformation(
-            eventId,
-            "AUDIT {Action} | user={Username} | schema={SchemaName} | object={ObjectName} | " +
-            "rows={RowCount} | ms={ElapsedMs} | context={@Context} | sql={Sql}",
-            evt.Action,
-            evt.Username,
-            evt.SchemaName ?? "-",
-            evt.ObjectName ?? "-",
-            evt.RowCount,
-            evt.ElapsedMs,
-            evt.Context,
-            sql);
+            // Use structured logging so sinks (e.g. Serilog JSON) capture each field
+            // as a separate searchable property rather than a flat string.
+            _logger.LogInformation(
+                eventId,
+                "AUDIT {Action} | user={Username} | schema={SchemaName} | object={ObjectName} | " +
+                "rows={RowCount} | ms={ElapsedMs} | context={@Context} | sql={Sql}",
+                evt.Action,
+                evt.Username,
+                evt.SchemaName ?? "-",
+                evt.ObjectName ?? "-",
+                evt.RowCount,
+                evt.ElapsedMs,
+                evt.Context,
+                sql);
         }
         catch (Exception ex)
         {

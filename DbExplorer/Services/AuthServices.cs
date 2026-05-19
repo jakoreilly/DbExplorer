@@ -35,7 +35,7 @@ public static class LoginHandler
         var password = form["password"].ToString();
 
         if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
-            return Results.Redirect("/login?error=1");
+            return Results.Redirect("/login?error=true");
 
         // Load allowed users from config section DbExplorer:Users
         var users = config.GetSection("DbExplorer:Users").Get<List<UserConfig>>() ?? [];
@@ -57,7 +57,8 @@ public static class LoginHandler
         var claims = new List<Claim>
         {
             new(ClaimTypes.Name, user!.Username),
-            new(ClaimTypes.Role, "Explorer")
+            new(ClaimTypes.Role, "Explorer"),
+            new("auth_provider", "local"),
         };
         var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);
