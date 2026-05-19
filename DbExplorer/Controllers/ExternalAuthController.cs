@@ -218,6 +218,11 @@ public sealed class ExternalAuthController(
             : a == b;
 
     /// <summary>Prevents open redirect attacks by allowing only local (same-origin) URLs.</summary>
-    private static bool IsLocalUrl(string url) =>
-        !string.IsNullOrEmpty(url) && url.StartsWith('/') && !url.StartsWith("//") && !url.StartsWith("/\\");
+    private static bool IsLocalUrl(string url)
+    {
+        if (string.IsNullOrEmpty(url)) return false;
+        // Decode once to catch percent-encoded open-redirect tricks (e.g. /%2F//evil.com).
+        var decoded = Uri.UnescapeDataString(url);
+        return decoded.StartsWith('/') && !decoded.StartsWith("//") && !decoded.StartsWith("/\\");
+    }
 }

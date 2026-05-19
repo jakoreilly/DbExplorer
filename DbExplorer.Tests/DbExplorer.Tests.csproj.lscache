@@ -69,8 +69,10 @@ Unit/
  AuthServicesTests.cs
  DataBrowsingServiceTests.cs
  DataControllerTests.cs
+ ExternalAuthControllerTests.cs
  MetadataControllerTests.cs
  ModelTests.cs
+ QueryBuilderServiceTests.cs
  SqlIdentifierHelperTests.cs
 
 [metadataReferences]

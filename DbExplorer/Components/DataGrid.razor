@@ -76,31 +76,34 @@
                                 <td @onclick="() => CopyCell(val)" title="Click to copy" class="copyable-cell">@val</td>
                             }
                         </tr>
+                        @if (selectedRowForDetail == row)
+                        {
+                            <tr class="row-detail-row">
+                                <td colspan="@(columns.Count + 1)" class="row-detail-cell">
+                                    <div class="row-detail-panel">
+                                        <div class="row-detail-header">
+                                            <strong>Row Detail</strong>
+                                            <button @onclick="() => selectedRowForDetail = null" title="Close">✕</button>
+                                        </div>
+                                        <table class="row-detail-table">
+                                            @foreach (var field in selectedRowForDetail.Fields)
+                                            {
+                                                <tr>
+                                                    <td class="field-name">@field.Key</td>
+                                                    <td class="field-value" @onclick="() => CopyCell(field.Value?.ToString() ?? string.Empty)" title="Click to copy">
+                                                        @(field.Value?.ToString() ?? "(null)")
+                                                    </td>
+                                                </tr>
+                                            }
+                                        </table>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
                     }
                 </tbody>
             </table>
         </div>
-
-        @if (selectedRowForDetail is not null)
-        {
-            <div class="row-detail-panel">
-                <div class="row-detail-header">
-                    <strong>Row Detail</strong>
-                    <button @onclick="() => selectedRowForDetail = null" title="Close">✕</button>
-                </div>
-                <table class="row-detail-table">
-                    @foreach (var field in selectedRowForDetail.Fields)
-                    {
-                        <tr>
-                            <td class="field-name">@field.Key</td>
-                            <td class="field-value" @onclick="() => CopyCell(field.Value?.ToString() ?? string.Empty)" title="Click to copy">
-                                @(field.Value?.ToString() ?? "(null)")
-                            </td>
-                        </tr>
-                    }
-                </table>
-            </div>
-        }
     }
     else
     {

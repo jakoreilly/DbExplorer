@@ -485,7 +485,9 @@ Components/
  DatabaseSelector.razor
  DataGrid.razor
  Diagram/TableNodeWidget.razor
- Layout/MainLayout.razor
+ Layout/
+  LoginLayout.razor
+  MainLayout.razor
  ObjectTree.razor
  Pages/
   ExplorerPage.razor
@@ -511,7 +513,9 @@ Components/
  DatabaseSelector.razor
  DataGrid.razor
  Diagram/TableNodeWidget.razor
- Layout/MainLayout.razor
+ Layout/
+  LoginLayout.razor
+  MainLayout.razor
  ObjectTree.razor
  Pages/
   ExplorerPage.razor

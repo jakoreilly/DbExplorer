@@ -408,6 +408,7 @@
                         <table class="profiler-table">
                             <thead>
                                 <tr>
+                                    <th class="row-detail-col"></th>
                                     @foreach (var col in _queryResult.Columns)
                                     {
                                         <th>@col.Name</th>
@@ -417,12 +418,38 @@
                             <tbody>
                                 @foreach (var row in _queryResult.Rows)
                                 {
-                                    <tr>
+                                    <tr class="@(_qbSelectedRow == row ? "row-selected" : "")">
+                                        <td class="row-detail-col">
+                                            <button class="row-detail-btn" @onclick="() => ToggleQbRowDetail(row)" title="View row detail">⊞</button>
+                                        </td>
                                         @foreach (var col in _queryResult.Columns)
                                         {
                                             <td>@(row.TryGetValue(col.Name, out var v) ? v?.ToString() ?? "" : "")</td>
                                         }
                                     </tr>
+                                    @if (_qbSelectedRow == row)
+                                    {
+                                        <tr class="row-detail-row">
+                                            <td colspan="@(_queryResult.Columns.Count + 1)" class="row-detail-cell">
+                                                <div class="row-detail-panel">
+                                                    <div class="row-detail-header">
+                                                        <strong>Row Detail</strong>
+                                                        <button @onclick="() => _qbSelectedRow = null" title="Close">✕</button>
+                                                    </div>
+                                                    <table class="row-detail-table">
+                                                        @foreach (var col in _queryResult.Columns)
+                                                        {
+                                                            var fv = row.TryGetValue(col.Name, out var fval) ? fval?.ToString() ?? "(null)" : "(null)";
+                                                            <tr>
+                                                                <td class="field-name">@col.Name</td>
+                                                                <td class="field-value">@fv</td>
+                                                            </tr>
+                                                        }
+                                                    </table>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             </tbody>
                         </table>
@@ -490,6 +517,7 @@
 
     private string _compiledSql = "-- Select a table above to start building a query";
     private QueryResult? _queryResult;
+    private IReadOnlyDictionary<string, object?>? _qbSelectedRow;
     private string? _queryError;
     private bool _isRunning;
     private string _copiedLabel = "Copy SQL";
@@ -544,6 +572,7 @@
             _filters = new();
             _compiledSql = "-- Add a table to start building a query";
             _queryResult = null;
+            _qbSelectedRow = null;
             _queryError = null;
             _isLoadingTables = false;
             _isLoadingCols = false;
@@ -781,6 +810,11 @@
             .ToList();
 
     // ── Run Query guard ───────────────────────────────────────────────────────
+
+    private void ToggleQbRowDetail(IReadOnlyDictionary<string, object?> row)
+    {
+        _qbSelectedRow = _qbSelectedRow == row ? null : row;
+    }
 
     private bool CanRunQuery =>
         !_isRunning && (
@@ -1026,6 +1060,7 @@
         _isRunning = true;
         _queryError = null;
         _queryResult = null;
+        _qbSelectedRow = null;
         StateHasChanged();
 
         try

@@ -165,4 +165,35 @@ public class AdHocQueryServiceTests
         Assert.False(ex is InvalidOperationException,
             $"Read-only guard incorrectly rejected GetActivityAsync for {provider}: {ex?.Message}");
     }
+
+    // ── LOAD / COPY blocklist (S7) ────────────────────────────────────────────
+
+    [Theory]
+    [InlineData("LOAD DATA INFILE '/etc/passwd' INTO TABLE users")]
+    [InlineData("COPY users FROM '/var/secrets'")]
+    [InlineData("load data local infile 'x.csv' into table t")]
+    public async Task ExecuteQueryAsync_LoadOrCopy_ThrowsInvalidOperationException(string sql)
+    {
+        var svc = CreateService();
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            svc.ExecuteQueryAsync(sql));
+    }
+
+    // ── String literal false-positive guard (W5) ─────────────────────────────
+
+    [Theory]
+    [InlineData("SELECT ';DELETE FROM users' AS x")]
+    [InlineData("SELECT 'LOAD DATA' AS msg, id FROM t")]
+    [InlineData("SELECT 'it''s fine; trust me' AS note")]
+    public async Task ExecuteQueryAsync_SemicolonOrDmlInsideStringLiteral_DoesNotThrow(string sql)
+    {
+        // These are valid read-only queries where semicolons or DML keywords appear
+        // only inside string literals. EnsureReadOnly must NOT reject them.
+        var svc = CreateService();
+        // The query will fail to connect (factory is mocked), but must NOT raise
+        // InvalidOperationException from EnsureReadOnly.
+        var ex = await Record.ExceptionAsync(() => svc.ExecuteQueryAsync(sql));
+        Assert.False(ex is InvalidOperationException,
+            $"Read-only guard incorrectly rejected SQL with literal content: {ex?.Message}");
+    }
 }

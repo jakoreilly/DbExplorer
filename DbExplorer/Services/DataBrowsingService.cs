@@ -113,9 +113,9 @@ public sealed class DataBrowsingService(
         var dataRows = rawRows
             .Select(r =>
             {
-                var dict = (IDictionary<string, object?>)(IDictionary<string, object>)r;
-                // Dapper returns IDictionary<string,object>; cast safely
-                return new DataRow(dict.ToDictionary(k => k.Key, k => (object?)k.Value));
+                var dict = (IDictionary<string, object>)r;
+                // Dapper returns DBNull.Value for SQL NULLs — map to null.
+                return new DataRow(dict.ToDictionary(k => k.Key, k => k.Value is DBNull ? null : (object?)k.Value));
             })
             .ToList();
 

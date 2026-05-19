@@ -34,7 +34,8 @@ public static class LoginHandler
         var username = form["username"].ToString().Trim();
         var password = form["password"].ToString();
 
-        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password)
+            || username.Length > 256 || password.Length > 1024)
             return Results.Redirect("/login?error=true");
 
         // Load allowed users from config section DbExplorer:Users

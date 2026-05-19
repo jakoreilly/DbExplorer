@@ -40,10 +40,17 @@ public sealed class AdHocQueryService(
         @";\s*\S",
         RegexOptions.Compiled);
 
+    // Strips single-quoted string literals so their contents can't mask or smuggle keywords.
+    // Handles doubled-quote escapes (e.g. 'it''s') correctly.
+    private static readonly Regex _stringLiteral = new(
+        @"'(?:[^']|'')*'",
+        RegexOptions.Compiled);
+
     // Detects DML/DDL keywords that are dangerous inside CTEs (e.g. WITH x AS (INSERT ...)).
-    // Only applied after both block and line comments have been stripped.
+    // Only applied after both block and line comments AND string literals have been stripped.
+    // Includes provider-specific bulk-load commands (LOAD DATA for MySQL, COPY for PostgreSQL).
     private static readonly Regex _writeDml = new(
-        @"\b(?:INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|CREATE|TRUNCATE|EXEC|EXECUTE|CALL|GRANT|REVOKE)\b",
+        @"\b(?:INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|CREATE|TRUNCATE|EXEC|EXECUTE|CALL|GRANT|REVOKE|LOAD|COPY)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>
@@ -56,6 +63,9 @@ public sealed class AdHocQueryService(
         // Remove block and line comments so they cannot be used to mask or smuggle keywords.
         var stripped = _blockComment.Replace(sql, " ");
         stripped = _lineComment.Replace(stripped, " ");
+        // Strip string literal contents so semicolons/DML inside strings don't cause
+        // false positives (e.g. SELECT ';DELETE' or SELECT 'LOAD DATA...').
+        stripped = _stringLiteral.Replace(stripped, "''");
 
         // Reject multi-statement batches (e.g. SELECT 1; DELETE FROM x).
         if (_multiStatement.IsMatch(stripped))
