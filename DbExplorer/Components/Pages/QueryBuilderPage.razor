@@ -345,6 +345,8 @@
                             }
                         </select>
                         <span class="qb-join-label">@tgtNode.Alias.<strong>@tgtCol</strong></span>
+                        <button class="qb-join-remove-btn" title="Remove this join"
+                                @onclick="() => RemoveCanvasJoin(link)">✕</button>
                     </div>
                 }
             </div>
@@ -780,6 +782,12 @@
         }
 
         return new QueryGraph(tables, joins, Array.Empty<QueryFilterNode>(), _rowLimit);
+    }
+
+    private void RemoveCanvasJoin(BaseLinkModel link)
+    {
+        _blazorDiagram.Links.Remove(link);
+        // OnDiagramLinkRemoved fires automatically and recompiles the canvas.
     }
 
     private void RecompileCanvas()

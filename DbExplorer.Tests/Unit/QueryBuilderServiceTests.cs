@@ -88,6 +88,27 @@ public class QueryBuilderServiceTests
     }
 
     [Fact]
+    public void Compile_ReverseJoinDirection_FlipsAndProducesValidSql()
+    {
+        // User drew join from t1 (second table) TO t0 (base table) — reverse direction.
+        // TopologicalSortJoins should flip source/target so t0 is the source.
+        var svc = CreateService(DatabaseProvider.PostgreSql);
+        var t0 = new QueryTableNode("t0", "public", "customers", []);
+        var t1 = new QueryTableNode("t1", "public", "orders", []);
+
+        // Reverse: user dragged FROM t1 TO t0
+        var reverseJoin = new QueryJoinEdge(JoinType.Inner, "t1", "customer_id", "t0", "customer_id");
+
+        var (sql, _) = svc.Compile(new QueryGraph([t0, t1], [reverseJoin], [], null));
+
+        // Should contain one JOIN — t1 joined onto the base t0
+        sql.Should().Contain("JOIN");
+        // Must NOT duplicate t0 (the base table) as a JOIN target
+        var t0Occurrences = System.Text.RegularExpressions.Regex.Matches(sql, @"\bt0\b").Count;
+        t0Occurrences.Should().BeLessOrEqualTo(2, "t0 should appear only once in FROM and once in the ON clause, not as a JOIN target");
+    }
+
+    [Fact]
     public void Compile_WithLimit_MySql_IncludesLimitClause()
     {
         var svc = CreateService(DatabaseProvider.MySql);

@@ -377,6 +377,8 @@ html.theme-dark .profiler-tr--danger td,
 .qb-col-name { color: var(--text); }
 .qb-col-type { color: var(--muted); font-size: 0.75rem; }
 .qb-join-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem; padding: 0.5rem 0.65rem; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 6px; }
+.qb-join-remove-btn { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--muted); font-size: 0.85rem; padding: 0.1rem 0.3rem; border-radius: 3px; line-height: 1; }
+.qb-join-remove-btn:hover { color: var(--error-text); background: var(--error-bg); }
 .qb-filter-row { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.5rem; padding: 0.5rem 0.65rem; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 6px; }
 .qb-remove-btn { padding: 0.2rem 0.5rem; font-size: 0.8rem; }
 .qb-sql-preview { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.75rem; overflow: hidden; }

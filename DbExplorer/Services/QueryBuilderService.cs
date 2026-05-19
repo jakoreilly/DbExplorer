@@ -83,7 +83,9 @@ public sealed class QueryBuilderService : IQueryBuilderService
     /// (introduced by a prior join or the base FROM table) before the join is emitted.
     /// This prevents "missing FROM-clause entry" errors when the user draws joins
     /// in an order that doesn't match the dependency chain.
-    /// Joins that cannot be satisfied (disconnected subgraph) are appended last.
+    /// Joins drawn in reverse (target already reachable, source new) are automatically
+    /// flipped so that the already-reachable side becomes the source.
+    /// Joins that remain disconnected after all passes are appended last.
     /// </summary>
     private static IReadOnlyList<QueryJoinEdge> TopologicalSortJoins(
         IReadOnlyList<QueryJoinEdge> joins, string baseTableId)
@@ -98,10 +100,29 @@ public sealed class QueryBuilderService : IQueryBuilderService
             progress = false;
             for (int i = remaining.Count - 1; i >= 0; i--)
             {
-                if (reachable.Contains(remaining[i].SourceNodeId))
+                var join = remaining[i];
+                if (reachable.Contains(join.SourceNodeId))
                 {
-                    ordered.Add(remaining[i]);
-                    reachable.Add(remaining[i].TargetNodeId);
+                    // Forward direction: source is already in scope, target is new.
+                    ordered.Add(join);
+                    reachable.Add(join.TargetNodeId);
+                    remaining.RemoveAt(i);
+                    progress = true;
+                }
+                else if (reachable.Contains(join.TargetNodeId))
+                {
+                    // Reverse direction: user drew the join starting from the new table.
+                    // Swap source ↔ target so the ON clause stays semantically identical
+                    // (JOIN ON a.x = b.y is equivalent to JOIN ON b.y = a.x).
+                    var flipped = join with
+                    {
+                        SourceNodeId = join.TargetNodeId,
+                        SourceColumn = join.TargetColumn,
+                        TargetNodeId = join.SourceNodeId,
+                        TargetColumn = join.SourceColumn,
+                    };
+                    ordered.Add(flipped);
+                    reachable.Add(flipped.TargetNodeId);
                     remaining.RemoveAt(i);
                     progress = true;
                 }
@@ -109,8 +130,8 @@ public sealed class QueryBuilderService : IQueryBuilderService
         }
         while (progress && remaining.Count > 0);
 
-        // Append any disconnected joins unchanged so the SQL is still generated
-        // (SqlKata will produce a cross-join or the DB will reject it, both preferable to silently dropping data).
+        // Append any truly disconnected joins unchanged — the DB will reject them,
+        // which is preferable to silently dropping columns from the query.
         ordered.AddRange(remaining);
         return ordered;
     }
