@@ -7,7 +7,8 @@
 @inject IOptions<QueryBuilderOptions> QBOpts
 @implements IDisposable
 
-<div class="layout @(ThemeState.IsDarkMode ? "theme-dark" : "theme-light")">
+<div class="layout @(ThemeState.IsDarkMode ? "theme-dark" : "theme-light")" id="main-layout">
+    <div class="signing-out-overlay" aria-hidden="true">Signing out…</div>
     <nav class="sidebar">
         <div class="sidebar-header">
             <h1><a href="/" class="sidebar-title-link">DbExplorer</a></h1>
@@ -27,7 +28,8 @@
         <div class="top-bar">
             <ThemeToggle />
             <DatabaseSelector />
-            <form method="post" action="/logout" class="logout-form" @formname="logout-form">
+            <form method="post" action="/logout" class="logout-form" @formname="logout-form"
+                  onsubmit="document.getElementById('main-layout').classList.add('signing-out')">
                 <AntiforgeryToken />
                 <button type="submit">Sign Out</button>
             </form>

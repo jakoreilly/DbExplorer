@@ -166,6 +166,23 @@ tr:hover td { background: var(--row-hover); }
 .loading { padding: 1rem; color: var(--muted); }
 .welcome { padding: 2rem; }
 .logout-form button { padding: 0.3rem 0.75rem; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 0.85rem; color: var(--text); }
+
+/* Signing-out overlay — shown immediately when the Sign Out form is submitted so
+   authenticated content is covered before the browser completes the redirect. */
+.signing-out-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 1rem;
+    align-items: center;
+    justify-content: center;
+}
+.layout.signing-out .signing-out-overlay { display: flex; }
+.layout.signing-out .sidebar,
+.layout.signing-out .main-content { visibility: hidden; }
 .theme-toggle { padding: 0.3rem 0.75rem; background: none; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; font-size: 0.85rem; color: var(--text); }
 .theme-toggle:hover { background: var(--bg); }
 
@@ -403,3 +420,12 @@ html.theme-dark .tnode .diagram-port,
 .layout.theme-dark .tnode .diagram-port { background: #94a3b8; border-color: #fff; }
 html.theme-dark .tnode .diagram-port:hover, html.theme-dark .tnode .diagram-port.has-links,
 .layout.theme-dark .tnode .diagram-port:hover, .layout.theme-dark .tnode .diagram-port.has-links { background: var(--primary); }
+
+/* ── Diagram link lines (Z.Blazor.Diagrams SVG paths) ─────────────────────── */
+/* In light mode the default black stroke is visible; in dark mode override it
+   so join lines don't disappear against the dark canvas background.
+   CSS declarations beat SVG presentation attributes, so no !important needed. */
+html.theme-dark .diagram-link path,
+.layout.theme-dark .diagram-link path { stroke: #94a3b8; }
+html.theme-dark .diagram-link path.selection-helper,
+.layout.theme-dark .diagram-link path.selection-helper { stroke: transparent; }
