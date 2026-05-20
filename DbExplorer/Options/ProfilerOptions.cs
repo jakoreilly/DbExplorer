@@ -24,4 +24,11 @@ public sealed class ProfilerOptions
     /// without highlighting; the query editor falls back to a plain textarea.
     /// </summary>
     public bool EnableSyntaxHighlighting { get; init; } = true;
+
+    /// <summary>
+    /// Command timeout in seconds for ad-hoc queries executed via the Profiler query editor.
+    /// Applies to both <c>ExecuteQueryAsync</c> and <c>ExplainQueryAsync</c>.
+    /// Defaults to 30 seconds; set higher for complex analytical queries.
+    /// </summary>
+    public int QueryTimeoutSeconds { get; init; } = 30;
 }

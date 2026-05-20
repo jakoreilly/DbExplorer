@@ -155,7 +155,7 @@ public sealed class DataController(
     private static string CsvEscape(string? value)
     {
         if (value is null) return "";
-        if (value.Contains(',') || value.Contains('"') || value.Contains('\n'))
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
             return "\"" + value.Replace("\"", "\"\"") + "\"";
         return value;
     }

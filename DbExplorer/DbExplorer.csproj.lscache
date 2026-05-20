@@ -500,6 +500,7 @@ Components/
   DefinitionPanel.razor
   ForeignKeysPanel.razor
   IndexesPanel.razor
+  QueryResultTable.razor
   TriggersPanel.razor
  RecentlyViewed.razor
  RedirectToLogin.razor
@@ -528,6 +529,7 @@ Components/
   DefinitionPanel.razor
   ForeignKeysPanel.razor
   IndexesPanel.razor
+  QueryResultTable.razor
   TriggersPanel.razor
  RecentlyViewed.razor
  RedirectToLogin.razor

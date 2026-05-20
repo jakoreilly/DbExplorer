@@ -96,41 +96,7 @@
 
                     @if (resultTab == "results" && queryResult is not null)
                     {
-                        @if (queryResult.Warning is not null)
-                        {
-                            <div class="profiler-warning">⚠ @queryResult.Warning</div>
-                        }
-                        @if (queryResult.Columns.Count == 0)
-                        {
-                            <div class="profiler-empty">Query executed successfully. No rows returned.</div>
-                        }
-                        else
-                        {
-                            <div class="profiler-table-scroll">
-                                <table class="profiler-table">
-                                    <thead>
-                                        <tr>
-                                            @foreach (var col in queryResult.Columns)
-                                            {
-                                                <th>@col.Name</th>
-                                            }
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var row in queryResult.Rows)
-                                        {
-                                            <tr>
-                                                @foreach (var col in queryResult.Columns)
-                                                {
-                                                    var val = row.TryGetValue(col.Name, out var v) ? v : null;
-                                                    <td>@(val is null ? "NULL" : val.ToString())</td>
-                                                }
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-                        }
+                        <QueryResultTable Result="queryResult" />
                     }
 
                     @if (resultTab == "plan")
@@ -507,9 +473,10 @@
         queryResult = null;
         resultTab = "results";
         StateHasChanged();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(ProfilerOpts.Value.QueryTimeoutSeconds));
         try
         {
-            queryResult = await AdHocService.ExecuteQueryAsync(queryText.Trim());
+            queryResult = await AdHocService.ExecuteQueryAsync(queryText.Trim(), ct: cts.Token);
             Profiler.Record(SelectorState.Current.Provider.ToString(), queryText.Trim(),
                 queryResult.ElapsedMs, queryResult.Rows.Count);
             Audit.Log(new AuditEvent(DateTimeOffset.UtcNow, _username, AuditAction.AdHocQuery,
@@ -547,9 +514,10 @@
         explainPlan = null;
         resultTab = "plan";
         StateHasChanged();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(ProfilerOpts.Value.QueryTimeoutSeconds));
         try
         {
-            explainPlan = await AdHocService.ExplainQueryAsync(queryText.Trim());
+            explainPlan = await AdHocService.ExplainQueryAsync(queryText.Trim(), cts.Token);
             Profiler.Record(SelectorState.Current.Provider.ToString(),
                 $"EXPLAIN: {queryText.Trim()}", 0, 0);
         }

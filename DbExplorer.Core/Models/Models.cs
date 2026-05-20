@@ -46,7 +46,23 @@ public sealed record AuditEvent(
     string? Sql = null,
     /// <summary>Action-specific context properties (e.g. "tool", "provider"). Open-ended for future extension.</summary>
     IReadOnlyDictionary<string, string?>? Context = null
-);
+)
+{
+    /// <summary>
+    /// Creates an <see cref="AuditEvent"/> stamped with <see cref="DateTimeOffset.UtcNow"/>.
+    /// Named parameters prevent fragility to positional argument order.
+    /// </summary>
+    public static AuditEvent Create(
+        string username,
+        AuditAction action,
+        string? schemaName = null,
+        string? objectName = null,
+        int rowCount = -1,
+        long elapsedMs = -1,
+        string? sql = null,
+        IReadOnlyDictionary<string, string?>? context = null)
+        => new(DateTimeOffset.UtcNow, username, action, schemaName, objectName, rowCount, elapsedMs, sql, context);
+}
 
 public enum SortDirection
 {

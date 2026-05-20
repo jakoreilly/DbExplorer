@@ -151,8 +151,8 @@ public sealed class MetadataService(
                         WHEN 'V'  THEN 'VIEW'
                         WHEN 'P'  THEN 'PROCEDURE'
                         WHEN 'FN' THEN 'SCALAR_FUNCTION'
-                        WHEN 'TF' THEN 'TABLE_FUNCTION'
-                        WHEN 'IF' THEN 'TABLE_FUNCTION'
+                        WHEN 'TF' THEN 'TABLE_FUNCTION' -- multi-statement table-valued function
+                        WHEN 'IF' THEN 'TABLE_FUNCTION' -- inline table-valued function
                         ELSE o.type
                     END AS ObjectType
                 FROM sys.objects o
@@ -507,8 +507,8 @@ public sealed class MetadataService(
                         WHEN 'V'  THEN 'VIEW'
                         WHEN 'P'  THEN 'PROCEDURE'
                         WHEN 'FN' THEN 'SCALAR_FUNCTION'
-                        WHEN 'TF' THEN 'TABLE_FUNCTION'
-                        WHEN 'IF' THEN 'TABLE_FUNCTION'
+                        WHEN 'TF' THEN 'TABLE_FUNCTION' -- multi-statement table-valued function
+                        WHEN 'IF' THEN 'TABLE_FUNCTION' -- inline table-valued function
                         ELSE o.type
                     END AS ObjectType,
                     m.definition AS Definition

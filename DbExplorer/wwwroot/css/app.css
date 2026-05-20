@@ -130,6 +130,7 @@ body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg);
 .object-node { display: block; width: 100%; text-align: left; padding: 0.25rem 0.5rem; background: none; border: none; cursor: pointer; font-size: 0.85rem; border-radius: 3px; color: var(--text); }
 .object-node:hover, .object-node.selected { background: var(--hover-bg); color: var(--primary); }
 .schema-empty { padding: 0.25rem 0.5rem 0.25rem 1.5rem; font-size: 0.8rem; color: var(--muted); font-style: italic; }
+.schema-hint { padding: 0.25rem 0.5rem 0.25rem 1.5rem; font-size: 0.75rem; color: var(--muted); font-style: italic; line-height: 1.4; }
 .current-catalog { font-size: 0.8rem; color: var(--muted); margin-bottom: 0.4rem; }
 .catalog-warning { font-size: 0.8rem; color: var(--error-text); margin-bottom: 0.75rem; line-height: 1.4; }
 .catalog-warning-detail { margin-top: 0.35rem; font-size: 0.78rem; color: var(--muted); }
@@ -272,6 +273,8 @@ tr:hover td { background: var(--row-hover); }
 .profiler-btn--primary { background: var(--primary); color: white; border-color: var(--primary); }
 .profiler-btn--primary:hover:not(:disabled) { opacity: 0.88; color: white; }
 .profiler-btn--ghost { color: var(--muted); }
+.profiler-btn--sm { padding: 0.2rem 0.55rem; font-size: 0.8rem; }
+.profiler-table-toolbar { display: flex; justify-content: flex-end; padding: 0.4rem 0.75rem 0; }
 
 .profiler-result-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 0.75rem; }
 .profiler-tab { padding: 0.4rem 1rem; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-size: 0.85rem; color: var(--muted); }

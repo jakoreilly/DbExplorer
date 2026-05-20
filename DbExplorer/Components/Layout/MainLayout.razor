@@ -14,12 +14,12 @@
             <h1><a href="/" class="sidebar-title-link">DbExplorer</a></h1>
         </div>
         <nav class="sidebar-nav">
-            <a href="/" class="sidebar-nav-link">Explorer</a>
+            <a href="/profiler" class="sidebar-nav-link">Profiler</a>
             @if (QBOpts.Value.Enabled)
             {
                 <a href="/query-builder" class="sidebar-nav-link">Query Builder</a>
             }
-            <a href="/profiler" class="sidebar-nav-link">Profiler</a>
+            <a href="/" class="sidebar-nav-link">Explorer</a>
         </nav>
         <RecentlyViewed />
         <ObjectTree />

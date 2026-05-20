@@ -157,6 +157,18 @@
             try { await navigator.clipboard.writeText(text); return true; }
             catch (e) { return false; }
         };
+        // Trigger a browser download of in-memory text content (e.g. CSV)
+        window.dbExplorerDownloadText = function (fileName, mimeType, content) {
+            var blob = new Blob([content], { type: mimeType });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        };
     </script>
     <script src="_content/Z.Blazor.Diagrams/script.min.js"></script>
 </body>

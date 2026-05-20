@@ -1,5 +1,7 @@
 using DbExplorer.Core.Interfaces;
 using DbExplorer.Core.Models;
+using DbExplorer.Options;
+using Microsoft.Extensions.Options;
 using System.Data.Common;
 using System.Diagnostics;
 using System.Text;
@@ -15,9 +17,10 @@ namespace DbExplorer.Services;
 /// </summary>
 public sealed class AdHocQueryService(
     IDbConnectionFactory factory,
+    IOptions<ProfilerOptions> profilerOptions,
     ILogger<AdHocQueryService> logger) : IAdHocQueryService
 {
-    private const int DefaultTimeoutSeconds = 30;
+    private int TimeoutSeconds => profilerOptions.Value.QueryTimeoutSeconds;
 
     // Strip block comments before keyword analysis.
     private static readonly Regex _blockComment = new(
@@ -48,9 +51,11 @@ public sealed class AdHocQueryService(
 
     // Detects DML/DDL keywords that are dangerous inside CTEs (e.g. WITH x AS (INSERT ...)).
     // Only applied after both block and line comments AND string literals have been stripped.
-    // Includes provider-specific bulk-load commands (LOAD DATA for MySQL, COPY for PostgreSQL).
+    // Includes provider-specific bulk-load commands (LOAD DATA for MySQL, COPY for PostgreSQL),
+    // and SQL Server-specific commands that allow file system access or dynamic SQL execution.
     private static readonly Regex _writeDml = new(
-        @"\b(?:INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|CREATE|TRUNCATE|EXEC|EXECUTE|CALL|GRANT|REVOKE|LOAD|COPY)\b",
+        @"\b(?:INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|CREATE|TRUNCATE|EXEC|EXECUTE|CALL|GRANT|REVOKE|LOAD|COPY"
+        + @"|BULK|OPENROWSET|OPENDATASOURCE|XP_CMDSHELL|SP_EXECUTESQL|SP_EXECUTE)\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     /// <summary>
@@ -106,7 +111,7 @@ public sealed class AdHocQueryService(
 
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
-        cmd.CommandTimeout = DefaultTimeoutSeconds;
+        cmd.CommandTimeout = TimeoutSeconds;
 
         var columns = new List<QueryResultColumn>();
         var rows = new List<IReadOnlyDictionary<string, object?>>();
@@ -149,9 +154,9 @@ public sealed class AdHocQueryService(
 
         return factory.Provider switch
         {
-            DatabaseProvider.PostgreSql => await ExplainPostgreSqlAsync(conn, sql, ct),
-            DatabaseProvider.MySql => await ExplainMySqlAsync(conn, sql, ct),
-            DatabaseProvider.SqlServer => await ExplainSqlServerAsync(conn, sql, ct),
+            DatabaseProvider.PostgreSql => await ExplainPostgreSqlAsync(conn, sql, TimeoutSeconds, ct),
+            DatabaseProvider.MySql => await ExplainMySqlAsync(conn, sql, TimeoutSeconds, ct),
+            DatabaseProvider.SqlServer => await ExplainSqlServerAsync(conn, sql, TimeoutSeconds, ct),
             _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
         };
     }
@@ -285,11 +290,11 @@ public sealed class AdHocQueryService(
 
     // ── Private helpers ───────────────────────────────────────────────────────
 
-    private static async Task<string> ExplainPostgreSqlAsync(DbConnection conn, string sql, CancellationToken ct)
+    private static async Task<string> ExplainPostgreSqlAsync(DbConnection conn, string sql, int timeout, CancellationToken ct)
     {
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = $"EXPLAIN (FORMAT TEXT) {sql}";
-        cmd.CommandTimeout = DefaultTimeoutSeconds;
+        cmd.CommandTimeout = timeout;
 
         var sb = new StringBuilder();
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -298,11 +303,11 @@ public sealed class AdHocQueryService(
         return sb.ToString();
     }
 
-    private static async Task<string> ExplainMySqlAsync(DbConnection conn, string sql, CancellationToken ct)
+    private static async Task<string> ExplainMySqlAsync(DbConnection conn, string sql, int timeout, CancellationToken ct)
     {
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = $"EXPLAIN {sql}";
-        cmd.CommandTimeout = DefaultTimeoutSeconds;
+        cmd.CommandTimeout = timeout;
 
         var sb = new StringBuilder();
         await using var reader = await cmd.ExecuteReaderAsync(ct);
@@ -323,12 +328,12 @@ public sealed class AdHocQueryService(
         return sb.ToString();
     }
 
-    private static async Task<string> ExplainSqlServerAsync(DbConnection conn, string sql, CancellationToken ct)
+    private static async Task<string> ExplainSqlServerAsync(DbConnection conn, string sql, int timeout, CancellationToken ct)
     {
         await using (var setOn = conn.CreateCommand())
         {
             setOn.CommandText = "SET SHOWPLAN_TEXT ON";
-            setOn.CommandTimeout = DefaultTimeoutSeconds;
+            setOn.CommandTimeout = timeout;
             await setOn.ExecuteNonQueryAsync(ct);
         }
 
@@ -337,7 +342,7 @@ public sealed class AdHocQueryService(
             var sb = new StringBuilder();
             await using var execCmd = conn.CreateCommand();
             execCmd.CommandText = sql;
-            execCmd.CommandTimeout = DefaultTimeoutSeconds;
+            execCmd.CommandTimeout = timeout;
 
             await using var reader = await execCmd.ExecuteReaderAsync(ct);
             do
@@ -355,7 +360,7 @@ public sealed class AdHocQueryService(
             // connection is not returned with SHOWPLAN_TEXT still enabled.
             await using var setOff = conn.CreateCommand();
             setOff.CommandText = "SET SHOWPLAN_TEXT OFF";
-            setOff.CommandTimeout = DefaultTimeoutSeconds;
+            setOff.CommandTimeout = timeout;
             await setOff.ExecuteNonQueryAsync(CancellationToken.None);
         }
     }

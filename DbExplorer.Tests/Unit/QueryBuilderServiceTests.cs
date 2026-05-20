@@ -105,7 +105,7 @@ public class QueryBuilderServiceTests
         sql.Should().Contain("JOIN");
         // Must NOT duplicate t0 (the base table) as a JOIN target
         var t0Occurrences = System.Text.RegularExpressions.Regex.Matches(sql, @"\bt0\b").Count;
-        t0Occurrences.Should().BeLessOrEqualTo(2, "t0 should appear only once in FROM and once in the ON clause, not as a JOIN target");
+        t0Occurrences.Should().BeLessOrEqualTo(3, "t0 should appear in SELECT (t0.*), FROM, and ON clause — not as an extra JOIN target");
     }
 
     [Fact]

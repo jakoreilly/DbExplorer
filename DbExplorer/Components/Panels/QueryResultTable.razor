@@ -1,0 +1,111 @@
+@using DbExplorer.Core.Models
+@inject IJSRuntime JS
+
+@if (Result is not null)
+{
+    @if (Result.Warning is not null)
+    {
+        <div class="profiler-warning">⚠ @Result.Warning</div>
+    }
+    @if (Result.Columns.Count == 0)
+    {
+        <div class="profiler-empty">Query executed successfully. No rows returned.</div>
+    }
+    else
+    {
+        <div class="profiler-table-toolbar">
+            <button class="profiler-btn profiler-btn--sm" @onclick="ExportCsvAsync" title="Download results as CSV">⬇ CSV</button>
+        </div>
+        <div class="profiler-table-scroll">
+            <table class="profiler-table">
+                <thead>
+                    <tr>
+                        <th class="row-detail-col"></th>
+                        @foreach (var col in Result.Columns)
+                        {
+                            <th>@col.Name</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in Result.Rows)
+                    {
+                        <tr class="@(_selectedRow == row ? "row-selected" : "")">
+                            <td class="row-detail-col">
+                                <button class="row-detail-btn" @onclick="() => ToggleRowDetail(row)" title="View row detail">⊞</button>
+                            </td>
+                            @foreach (var col in Result.Columns)
+                            {
+                                <td>@(row.TryGetValue(col.Name, out var v) ? v?.ToString() ?? "" : "")</td>
+                            }
+                        </tr>
+                        @if (_selectedRow == row)
+                        {
+                            <tr class="row-detail-row">
+                                <td colspan="@(Result.Columns.Count + 1)" class="row-detail-cell">
+                                    <div class="row-detail-panel">
+                                        <div class="row-detail-header">
+                                            <strong>Row Detail</strong>
+                                            <button @onclick="() => _selectedRow = null" title="Close">✕</button>
+                                        </div>
+                                        <table class="row-detail-table">
+                                            @foreach (var col in Result.Columns)
+                                            {
+                                                var fv = row.TryGetValue(col.Name, out var fval) ? fval?.ToString() ?? "(null)" : "(null)";
+                                                <tr>
+                                                    <td class="field-name">@col.Name</td>
+                                                    <td class="field-value">@fv</td>
+                                                </tr>
+                                            }
+                                        </table>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public QueryResult? Result { get; set; }
+
+    private IReadOnlyDictionary<string, object?>? _selectedRow;
+    private QueryResult? _prevResult;
+
+    protected override void OnParametersSet()
+    {
+        // Reset the selected row when a new result is bound so stale highlights are cleared.
+        if (Result != _prevResult)
+        {
+            _selectedRow = null;
+            _prevResult = Result;
+        }
+    }
+
+    private void ToggleRowDetail(IReadOnlyDictionary<string, object?> row)
+        => _selectedRow = _selectedRow == row ? null : row;
+
+    private async Task ExportCsvAsync()
+    {
+        if (Result is null || Result.Columns.Count == 0) return;
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(string.Join(",", Result.Columns.Select(c => CsvEscape(c.Name))));
+        foreach (var row in Result.Rows)
+            sb.AppendLine(string.Join(",", Result.Columns.Select(c =>
+                CsvEscape(row.TryGetValue(c.Name, out var v) ? v?.ToString() : null))));
+
+        await JS.InvokeVoidAsync("dbExplorerDownloadText", "query_result.csv", "text/csv", sb.ToString());
+    }
+
+    private static string CsvEscape(string? value)
+    {
+        if (value is null) return "";
+        if (value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r'))
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
+        return value;
+    }
+}

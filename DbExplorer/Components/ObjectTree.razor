@@ -72,6 +72,12 @@
                     }
                     else
                     {
+                        var hasTablesOrViews = objs.Any(o => o.ObjectType is "TABLE" or "VIEW");
+                        var hasRoutines = objs.Any(o => o.ObjectType is "PROCEDURE" or "SCALAR_FUNCTION" or "TABLE_FUNCTION");
+                        @if (hasTablesOrViews && !hasRoutines)
+                        {
+                            <div class="schema-hint">Some objects may be hidden — grant <code>VIEW DEFINITION</code> to the SQL login to see procedures and functions.</div>
+                        }
                         foreach (var group in objs.GroupBy(o => o.ObjectType))
                         {
                             <div class="type-group">

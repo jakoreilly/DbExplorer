@@ -37,7 +37,12 @@ public sealed class QueryBuilderService : IQueryBuilderService
         if (selectCols.Count > 0)
             query.Select(selectCols.ToArray());
         else
-            query.SelectRaw("*");
+        {
+            // Alias-qualified wildcards prevent ambiguous column references when multiple
+            // tables are joined (e.g. t0.*, t1.* instead of *).
+            var wildcards = string.Join(", ", graph.Tables.Select(t => $"{t.Id}.*"));
+            query.SelectRaw(wildcards);
+        }
 
         // JOINs — sort topologically so each join's source is already in scope
         foreach (var join in TopologicalSortJoins(graph.Joins, baseTable.Id))

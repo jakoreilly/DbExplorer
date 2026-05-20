@@ -1,7 +1,9 @@
 using DbExplorer.Core.Interfaces;
 using DbExplorer.Core.Models;
+using DbExplorer.Options;
 using DbExplorer.Services;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 
@@ -16,7 +18,8 @@ public class AdHocQueryServiceTests
     private static AdHocQueryService CreateService(DatabaseProvider provider = DatabaseProvider.SqlServer)
     {
         var factory = Mock.Of<IDbConnectionFactory>(f => f.Provider == provider);
-        return new AdHocQueryService(factory, NullLogger<AdHocQueryService>.Instance);
+        var options = Microsoft.Extensions.Options.Options.Create(new ProfilerOptions());
+        return new AdHocQueryService(factory, options, NullLogger<AdHocQueryService>.Instance);
     }
 
     // ── Allowed statements ────────────────────────────────────────────────────
@@ -166,13 +169,19 @@ public class AdHocQueryServiceTests
             $"Read-only guard incorrectly rejected GetActivityAsync for {provider}: {ex?.Message}");
     }
 
-    // ── LOAD / COPY blocklist (S7) ────────────────────────────────────────────
+    // ── LOAD / COPY / BULK / OPENROWSET etc. blocklist ───────────────────────
 
     [Theory]
     [InlineData("LOAD DATA INFILE '/etc/passwd' INTO TABLE users")]
     [InlineData("COPY users FROM '/var/secrets'")]
     [InlineData("load data local infile 'x.csv' into table t")]
-    public async Task ExecuteQueryAsync_LoadOrCopy_ThrowsInvalidOperationException(string sql)
+    [InlineData("BULK INSERT users FROM 'C:\\data.csv'")]
+    [InlineData("SELECT * FROM OPENROWSET('SQLNCLI', 'Server=evil', 'SELECT 1')")]
+    [InlineData("SELECT * FROM OPENDATASOURCE('SQLNCLI', 'Data Source=evil').db.dbo.tbl")]
+    [InlineData("EXEC XP_CMDSHELL 'dir c:\\'")]
+    [InlineData("EXEC SP_EXECUTESQL N'DELETE FROM users'")]
+    [InlineData("EXEC SP_EXECUTE 1")]
+    public async Task ExecuteQueryAsync_DangerousKeywords_ThrowsInvalidOperationException(string sql)
     {
         var svc = CreateService();
         await Assert.ThrowsAsync<InvalidOperationException>(() =>

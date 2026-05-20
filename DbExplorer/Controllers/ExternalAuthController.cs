@@ -66,7 +66,8 @@ public sealed class ExternalAuthController(
             null, null, -1, -1, Context: new Dictionary<string, string?> { ["provider"] = "windows" }));
 
         var safeReturn = IsLocalUrl(returnUrl) ? returnUrl : "/";
-        return Redirect(safeReturn);
+        try { return LocalRedirect(safeReturn); }
+        catch (InvalidOperationException) { return Redirect("/"); }
     }
 
     // ── Google OAuth ──────────────────────────────────────────────────────────
@@ -140,7 +141,8 @@ public sealed class ExternalAuthController(
             null, null, -1, -1, Context: new Dictionary<string, string?> { ["provider"] = "google" }));
 
         var safeReturn = IsLocalUrl(returnUrl) ? returnUrl : "/";
-        return Redirect(safeReturn);
+        try { return LocalRedirect(safeReturn); }
+        catch (InvalidOperationException) { return Redirect("/"); }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
