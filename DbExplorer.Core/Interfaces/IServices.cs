@@ -37,12 +37,19 @@ public interface IMetadataService
     Task<string> GetCurrentCatalogAsync(CancellationToken ct = default);
     Task<IReadOnlyList<CatalogInfo>> GetCatalogsAsync(CancellationToken ct = default);
     Task<IReadOnlyList<SchemaInfo>> GetSchemasAsync(CancellationToken ct = default);
-    Task<IReadOnlyList<DatabaseObjectInfo>> GetObjectsAsync(string? schemaName = null, CancellationToken ct = default);
+    Task<IReadOnlyList<DatabaseObjectInfo>> GetObjectsAsync(string? schemaName = null, string? search = null, CancellationToken ct = default);
     Task<IReadOnlyList<ColumnInfo>> GetColumnsAsync(string schemaName, string objectName, CancellationToken ct = default);
     Task<IReadOnlyList<IndexInfo>> GetIndexesAsync(string schemaName, string tableName, CancellationToken ct = default);
     Task<IReadOnlyList<ForeignKeyInfo>> GetForeignKeysAsync(string schemaName, string tableName, CancellationToken ct = default);
     Task<IReadOnlyList<TriggerInfo>> GetTriggersAsync(string schemaName, string tableName, CancellationToken ct = default);
     Task<ObjectDefinition?> GetObjectDefinitionAsync(string schemaName, string objectName, CancellationToken ct = default);
+    Task<long> GetRowCountAsync(string schemaName, string tableName, CancellationToken ct = default);
+
+    /// <summary>
+    /// Searches object names and column names (with their owning table) across all schemas.
+    /// Both the term and identifiers stay parameterized/catalog-validated per the usual pattern.
+    /// </summary>
+    Task<SearchResult> SearchAsync(string term, CancellationToken ct = default);
 }
 
 public interface IDataBrowsingService
@@ -51,6 +58,23 @@ public interface IDataBrowsingService
         string schemaName,
         string objectName,
         PagingOptions paging,
+        CancellationToken ct = default);
+
+    /// <summary>Primary key columns for a table, in key order. Empty for tables/views without a PK.</summary>
+    Task<IReadOnlyList<string>> GetPrimaryKeyColumnsAsync(
+        string schemaName,
+        string objectName,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Instant column intelligence (row/non-null/distinct counts, min/max) for the stats popover.
+    /// When <paramref name="filters"/> is supplied, stats reflect the same WHERE clause as the grid.
+    /// </summary>
+    Task<ColumnStats> GetColumnStatsAsync(
+        string schemaName,
+        string objectName,
+        string columnName,
+        IReadOnlyList<ColumnFilter>? filters = null,
         CancellationToken ct = default);
 }
 
@@ -66,6 +90,13 @@ public interface IAdHocQueryService
     /// feature (e.g. pg_stat_statements, performance_schema) is unavailable.
     /// </summary>
     Task<QueryResult> GetRecentQueriesAsync(CancellationToken ct = default);
+}
+
+public interface IPersistentQueryHistoryService
+{
+    Task AppendAsync(string username, ProfiledQuery entry, CancellationToken ct = default);
+    Task<IReadOnlyList<ProfiledQuery>> GetForUserAsync(string username, int maxEntries = 200, CancellationToken ct = default);
+    Task ClearAsync(string username, CancellationToken ct = default);
 }
 
 public interface IQueryProfiler

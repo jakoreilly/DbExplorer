@@ -93,7 +93,9 @@ builder.Services.AddRateLimiter(options =>
 
 // Application services
 builder.Services.AddScoped<ThemeState>();
+builder.Services.AddScoped<DensityState>();
 builder.Services.AddScoped<RecentlyViewedState>();
+builder.Services.AddScoped<PinnedState>();
 builder.Services.AddScoped<DatabaseSelectorState>();
 builder.Services.AddScoped<DiagramInteropService>();
 builder.Services.AddOptions<DataBrowsingOptions>()
@@ -110,6 +112,10 @@ builder.Services.AddOptions<QueryBuilderOptions>()
     .ValidateOnStart();
 builder.Services.AddOptions<McpOptions>()
     .Bind(builder.Configuration.GetSection("Mcp"));
+builder.Services.AddOptions<MetadataOptions>()
+    .Bind(builder.Configuration.GetSection(MetadataOptions.SectionName));
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<MetadataCacheVersion>();
 builder.Services.AddScoped<IQueryBuilderService, QueryBuilderService>();
 
 // MCP server — only registered when enabled
@@ -128,10 +134,13 @@ if (mcpOpts.Enabled)
         .WithHttpTransport()
         .WithTools<DbExplorerMcpTools>();
 }
+
+builder.Services.AddScoped<IRequestServerContext, RequestServerContext>();
 builder.Services.AddScoped<IDbConnectionFactory>(sp =>
     new DbConnectionFactory(
         sp.GetRequiredService<DatabaseSelectorState>(),
-        sp.GetRequiredService<IConfiguration>()));
+        sp.GetRequiredService<IConfiguration>(),
+        sp.GetRequiredService<IRequestServerContext>()));
 builder.Services.AddScoped(sp =>
     new SqlDialect(sp.GetRequiredService<IDbConnectionFactory>()));
 builder.Services.AddScoped<IIdentifierValidator, IdentifierValidatorService>();
@@ -139,12 +148,13 @@ builder.Services.AddScoped<IMetadataService, MetadataService>();
 builder.Services.AddScoped<IDataBrowsingService, DataBrowsingService>();
 builder.Services.AddScoped<IQueryProfiler, QueryProfilerService>();
 builder.Services.AddScoped<IAdHocQueryService, AdHocQueryService>();
+builder.Services.AddScoped<IPersistentQueryHistoryService, PersistentQueryHistoryService>();
 
 // Audit logging
 builder.Services.AddOptions<AuditOptions>().Bind(builder.Configuration.GetSection("Audit"));
 builder.Services.AddSingleton<IAuditLogger, AuditLoggerService>();
 
-// IHttpContextAccessor is used by DbExplorerMcpTools to resolve the caller's username
+// IHttpContextAccessor is used by DbExplorerMcpTools and request-scoped server selection.
 builder.Services.AddHttpContextAccessor();
 
 // ── App ───────────────────────────────────────────────────────────────────────

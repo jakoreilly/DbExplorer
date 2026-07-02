@@ -1,6 +1,9 @@
 using Dapper;
 using DbExplorer.Core.Interfaces;
 using DbExplorer.Core.Models;
+using DbExplorer.Options;
+using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Options;
 using System.Diagnostics;
 
 namespace DbExplorer.Services;
@@ -8,14 +11,37 @@ namespace DbExplorer.Services;
 /// <summary>
 /// Reads catalog views to enumerate objects and metadata for supported providers.
 /// All dynamic identifier usage is validated and quoted via the active SQL dialect.
+/// Hot tree lookups (schemas/objects/columns) are cached per connection+catalog with a
+/// short TTL; "Refresh" bumps the per-connection version to invalidate.
 /// </summary>
 public sealed class MetadataService(
     IDbConnectionFactory factory,
     SqlDialect dialect,
     IQueryProfiler profiler,
-    ILogger<MetadataService> logger) : IMetadataService
+    ILogger<MetadataService> logger,
+    IMemoryCache cache,
+    IOptions<MetadataOptions> metadataOptions,
+    DatabaseSelectorState selectorState,
+    MetadataCacheVersion cacheVersion) : IMetadataService
 {
     private const int TimeoutSeconds = 30;
+
+    private Task<T> GetOrQueryAsync<T>(string method, string args, Func<Task<T>> query)
+    {
+        var ttl = metadataOptions.Value.CacheTtlSeconds;
+        if (ttl <= 0)
+            return query();
+
+        var connection = selectorState.Current.Name;
+        var key = $"meta|{connection}|{factory.Provider}|{selectorState.SelectedCatalog ?? ""}" +
+                  $"|v{cacheVersion.Get(connection)}|{method}|{args}";
+
+        return cache.GetOrCreateAsync(key, entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(ttl);
+            return query();
+        })!;
+    }
 
     public async Task<string> GetCurrentCatalogAsync(CancellationToken ct = default)
     {
@@ -82,7 +108,10 @@ public sealed class MetadataService(
             .ToList();
     }
 
-    public async Task<IReadOnlyList<SchemaInfo>> GetSchemasAsync(CancellationToken ct = default)
+    public Task<IReadOnlyList<SchemaInfo>> GetSchemasAsync(CancellationToken ct = default)
+        => GetOrQueryAsync("schemas", "", () => QuerySchemasAsync(ct));
+
+    private async Task<IReadOnlyList<SchemaInfo>> QuerySchemasAsync(CancellationToken ct)
     {
         await using var conn = factory.Create();
         await conn.OpenAsync(ct);
@@ -130,8 +159,12 @@ public sealed class MetadataService(
         return result;
     }
 
-    public async Task<IReadOnlyList<DatabaseObjectInfo>> GetObjectsAsync(
-        string? schemaName = null, CancellationToken ct = default)
+    public Task<IReadOnlyList<DatabaseObjectInfo>> GetObjectsAsync(
+        string? schemaName = null, string? search = null, CancellationToken ct = default)
+        => GetOrQueryAsync("objects", $"{schemaName ?? ""}|{search ?? ""}", () => QueryObjectsAsync(schemaName, search, ct));
+
+    private async Task<IReadOnlyList<DatabaseObjectInfo>> QueryObjectsAsync(
+        string? schemaName, string? search, CancellationToken ct)
     {
         if (schemaName is not null)
             dialect.ThrowIfInvalidIdentifier(schemaName, nameof(schemaName));
@@ -233,7 +266,7 @@ public sealed class MetadataService(
         var sw = Stopwatch.StartNew();
         var rows = await conn.QueryAsync(
             new CommandDefinition(sql,
-                new { schema = schemaName },
+                new { schema = schemaName, search = string.IsNullOrWhiteSpace(search) ? null : search.Trim() },
                 commandTimeout: TimeoutSeconds,
                 cancellationToken: ct));
 
@@ -242,14 +275,39 @@ public sealed class MetadataService(
             (string)r.ObjectName,
             (string)r.ObjectType)).ToList();
         sw.Stop();
-        logger.LogDebug("GetObjectsAsync [{Provider}] schema={Schema} returned {Count} object(s) in {ElapsedMs}ms",
-            factory.Provider, schemaName ?? "*", result.Count, sw.ElapsedMilliseconds);
+        logger.LogDebug("GetObjectsAsync [{Provider}] schema={Schema} search={Search} returned {Count} object(s) in {ElapsedMs}ms",
+            factory.Provider, schemaName ?? "*", string.IsNullOrWhiteSpace(search) ? "*" : search, result.Count, sw.ElapsedMilliseconds);
         profiler.Record(factory.Provider.ToString(), sql, sw.ElapsedMilliseconds, result.Count);
         return result;
     }
 
-    public async Task<IReadOnlyList<ColumnInfo>> GetColumnsAsync(
+    public async Task<long> GetRowCountAsync(
+        string schemaName, string tableName, CancellationToken ct = default)
+    {
+        dialect.ThrowIfInvalidIdentifier(schemaName, nameof(schemaName));
+        dialect.ThrowIfInvalidIdentifier(tableName, nameof(tableName));
+
+        await using var conn = factory.Create();
+        await conn.OpenAsync(ct);
+
+        var fullName = $"{dialect.QuoteIdentifier(schemaName)}.{dialect.QuoteIdentifier(tableName)}";
+        var sql = factory.Provider == DatabaseProvider.SqlServer
+            ? $"SELECT COUNT_BIG(*) FROM {fullName}"
+            : $"SELECT COUNT(*) FROM {fullName}";
+
+        return await conn.ExecuteScalarAsync<long>(
+            new CommandDefinition(
+                sql,
+                commandTimeout: TimeoutSeconds,
+                cancellationToken: ct));
+    }
+
+    public Task<IReadOnlyList<ColumnInfo>> GetColumnsAsync(
         string schemaName, string objectName, CancellationToken ct = default)
+        => GetOrQueryAsync("columns", $"{schemaName}.{objectName}", () => QueryColumnsAsync(schemaName, objectName, ct));
+
+    private async Task<IReadOnlyList<ColumnInfo>> QueryColumnsAsync(
+        string schemaName, string objectName, CancellationToken ct)
     {
         dialect.ThrowIfInvalidIdentifier(schemaName, nameof(schemaName));
         dialect.ThrowIfInvalidIdentifier(objectName, nameof(objectName));
@@ -592,6 +650,143 @@ public sealed class MetadataService(
             (string)row.ObjectName,
             (string)row.ObjectType,
             (string?)row.Definition);
+    }
+
+    public Task<SearchResult> SearchAsync(string term, CancellationToken ct = default)
+        => GetOrQueryAsync("search", term, () => QuerySearchAsync(term, ct));
+
+    private async Task<SearchResult> QuerySearchAsync(string term, CancellationToken ct)
+    {
+        await using var conn = factory.Create();
+        await conn.OpenAsync(ct);
+
+        var like = $"%{term}%";
+        var sw = Stopwatch.StartNew();
+
+        var objectSql = factory.Provider switch
+        {
+            DatabaseProvider.SqlServer =>
+                """
+                SELECT TOP 50
+                    s.name AS SchemaName,
+                    o.name AS ObjectName,
+                    CASE o.type
+                        WHEN 'U'  THEN 'TABLE'
+                        WHEN 'V'  THEN 'VIEW'
+                        WHEN 'P'  THEN 'PROCEDURE'
+                        WHEN 'FN' THEN 'SCALAR_FUNCTION'
+                        WHEN 'TF' THEN 'TABLE_FUNCTION'
+                        WHEN 'IF' THEN 'TABLE_FUNCTION'
+                        ELSE o.type
+                    END AS ObjectType
+                FROM sys.objects o
+                JOIN sys.schemas s ON o.schema_id = s.schema_id
+                WHERE o.type IN ('U','V','P','FN','TF','IF')
+                  AND o.name LIKE @term
+                ORDER BY o.name
+                """,
+            DatabaseProvider.PostgreSql =>
+                """
+                SELECT * FROM (
+                    SELECT
+                        t.table_schema AS "SchemaName",
+                        t.table_name AS "ObjectName",
+                        CASE t.table_type WHEN 'BASE TABLE' THEN 'TABLE' WHEN 'VIEW' THEN 'VIEW' ELSE t.table_type END AS "ObjectType"
+                    FROM information_schema.tables t
+                    WHERE t.table_schema NOT IN ('pg_catalog', 'information_schema')
+                      AND t.table_type IN ('BASE TABLE', 'VIEW')
+                      AND t.table_name LIKE @term
+
+                    UNION ALL
+
+                    SELECT
+                        r.routine_schema AS "SchemaName",
+                        r.routine_name AS "ObjectName",
+                        CASE r.routine_type WHEN 'PROCEDURE' THEN 'PROCEDURE' WHEN 'FUNCTION' THEN 'SCALAR_FUNCTION' ELSE r.routine_type END AS "ObjectType"
+                    FROM information_schema.routines r
+                    WHERE r.routine_schema NOT IN ('pg_catalog', 'information_schema')
+                      AND r.routine_type IN ('FUNCTION', 'PROCEDURE')
+                      AND r.routine_name LIKE @term
+                ) x
+                ORDER BY "ObjectName"
+                LIMIT 50
+                """,
+            DatabaseProvider.MySql =>
+                """
+                SELECT * FROM (
+                    SELECT
+                        t.table_schema AS SchemaName,
+                        t.table_name AS ObjectName,
+                        CASE t.table_type WHEN 'BASE TABLE' THEN 'TABLE' WHEN 'VIEW' THEN 'VIEW' ELSE t.table_type END AS ObjectType
+                    FROM information_schema.tables t
+                    WHERE t.table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+                      AND t.table_type IN ('BASE TABLE', 'VIEW')
+                      AND t.table_name LIKE @term
+
+                    UNION ALL
+
+                    SELECT
+                        r.routine_schema AS SchemaName,
+                        r.routine_name AS ObjectName,
+                        CASE r.routine_type WHEN 'PROCEDURE' THEN 'PROCEDURE' WHEN 'FUNCTION' THEN 'SCALAR_FUNCTION' ELSE r.routine_type END AS ObjectType
+                    FROM information_schema.routines r
+                    WHERE r.routine_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')
+                      AND r.routine_type IN ('FUNCTION', 'PROCEDURE')
+                      AND r.routine_name LIKE @term
+                ) x
+                ORDER BY ObjectName
+                LIMIT 50
+                """,
+            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+        };
+
+        var isPg = factory.Provider == DatabaseProvider.PostgreSql;
+        var q = isPg ? "\"" : "";
+        var columnSql = factory.Provider switch
+        {
+            DatabaseProvider.SqlServer =>
+                """
+                SELECT TOP 50
+                    s.name AS SchemaName,
+                    o.name AS TableName,
+                    c.name AS ColumnName
+                FROM sys.columns c
+                JOIN sys.objects o ON c.object_id = o.object_id
+                JOIN sys.schemas s ON o.schema_id = s.schema_id
+                WHERE o.type IN ('U','V')
+                  AND c.name LIKE @term
+                ORDER BY c.name
+                """,
+            DatabaseProvider.PostgreSql or DatabaseProvider.MySql =>
+                $"""
+                SELECT
+                    c.table_schema AS {q}SchemaName{q},
+                    c.table_name AS {q}TableName{q},
+                    c.column_name AS {q}ColumnName{q}
+                FROM information_schema.columns c
+                WHERE c.column_name LIKE @term
+                ORDER BY c.column_name
+                LIMIT 50
+                """,
+            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+        };
+
+        var objectRows = await conn.QueryAsync(
+            new CommandDefinition(objectSql, new { term = like }, commandTimeout: TimeoutSeconds, cancellationToken: ct));
+        var columnRows = await conn.QueryAsync(
+            new CommandDefinition(columnSql, new { term = like }, commandTimeout: TimeoutSeconds, cancellationToken: ct));
+
+        var objects = objectRows.Select(r => new DatabaseObjectInfo(
+            (string)r.SchemaName, (string)r.ObjectName, (string)r.ObjectType)).ToList();
+        var columns = columnRows.Select(r => new ColumnSearchHit(
+            (string)r.SchemaName, (string)r.TableName, (string)r.ColumnName)).ToList();
+
+        sw.Stop();
+        logger.LogDebug("SearchAsync [{Provider}] term={Term} returned {ObjectCount} object(s), {ColumnCount} column(s) in {ElapsedMs}ms",
+            factory.Provider, term, objects.Count, columns.Count, sw.ElapsedMilliseconds);
+        profiler.Record(factory.Provider.ToString(), $"SearchAsync '{term}'", sw.ElapsedMilliseconds, objects.Count + columns.Count);
+
+        return new SearchResult(objects, columns);
     }
 
     public async Task<IReadOnlyList<TriggerInfo>> GetTriggersAsync(
