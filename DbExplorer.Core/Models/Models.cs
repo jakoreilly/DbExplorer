@@ -149,7 +149,57 @@ public record PagingOptions
     /// </summary>
     public string? SortColumn { get; init; }
     public SortDirection SortColumnDirection { get; init; } = SortDirection.Ascending;
+    public IReadOnlyList<ColumnFilter>? Filters { get; init; }
 }
+
+public enum ColumnFilterOperator
+{
+    Contains,
+    StartsWith,
+    Equals,
+    NotEquals,
+    GreaterThan,
+    LessThan,
+    IsNull,
+    IsNotNull,
+    Between
+}
+
+/// <summary>A single WHERE-clause condition applied to a data grid.</summary>
+public record ColumnFilter(
+    string ColumnName,
+    string? Value,
+    ColumnFilterOperator Operator = ColumnFilterOperator.Contains,
+    string? Value2 = null
+);
+
+// ── Search models ─────────────────────────────────────────────────────────────
+
+/// <summary>A column whose name matched a global search term, with its owning table.</summary>
+public record ColumnSearchHit(
+    string SchemaName,
+    string TableName,
+    string ColumnName
+);
+
+/// <summary>Result of a global metadata search: matching objects plus matching columns.</summary>
+public record SearchResult(
+    IReadOnlyList<DatabaseObjectInfo> Objects,
+    IReadOnlyList<ColumnSearchHit> Columns
+);
+
+// ── Column intelligence models ────────────────────────────────────────────────
+
+/// <summary>Instant statistics for a single column of a table or view.</summary>
+public record ColumnStats(
+    string ColumnName,
+    long TotalRows,
+    long NonNullRows,
+    long DistinctValues,
+    string? MinValue,
+    string? MaxValue,
+    long ElapsedMs = -1
+);
 
 // ── Profiler models ───────────────────────────────────────────────────────────
 

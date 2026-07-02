@@ -49,4 +49,24 @@ public class ModelTests
         fk.ReferencedTable.Should().Be("Users");
         fk.ReferencedColumn.Should().Be("Id");
     }
+
+    [Fact]
+    public void ColumnStats_TypeGuardFallback_UsesNegativeOneAndNulls()
+    {
+        var stats = new ColumnStats("Id", 100, 90, -1, null, null, 5);
+        stats.DistinctValues.Should().Be(-1);
+        stats.MinValue.Should().BeNull();
+        stats.MaxValue.Should().BeNull();
+    }
+
+    [Fact]
+    public void SearchResult_HoldsObjectsAndColumnHits()
+    {
+        var result = new SearchResult(
+            [new DatabaseObjectInfo("dbo", "Orders", "TABLE")],
+            [new ColumnSearchHit("dbo", "Orders", "CustomerId")]);
+
+        result.Objects.Should().ContainSingle().Which.ObjectName.Should().Be("Orders");
+        result.Columns.Should().ContainSingle().Which.ColumnName.Should().Be("CustomerId");
+    }
 }
