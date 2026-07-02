@@ -1,0 +1,111 @@
+@using System.Text.Json
+@using DbExplorer.Services
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject DatabaseSelectorState SelectorState
+@inject PinnedState PinnedState
+
+<div class="recent-section">
+    <button class="recent-toggle" type="button" @onclick="ToggleExpanded">
+        Pinned objects @(_expanded ? "▾" : "▸")
+    </button>
+
+    @if (_expanded)
+    {
+        <div class="recent-list">
+            @if (_items.Count == 0)
+            {
+                <div class="recent-empty">No pinned objects yet.</div>
+            }
+            else
+            {
+                @foreach (var item in _items)
+                {
+                    <div class="pinned-item-row">
+                        <button class="object-node recent-item" type="button" title="@item.SchemaName.@item.ObjectName (@item.ObjectType)"
+                                @onclick="() => Navigate(item)">
+                            <span class="recent-icon">@TypeIcon(item.ObjectType)</span>
+                            @item.SchemaName.<strong>@item.ObjectName</strong>
+                        </button>
+                        <button class="pin-toggle" type="button" title="Unpin" @onclick="() => TogglePin(item)" @onclick:stopPropagation="true">✕</button>
+                    </div>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<PinnedItem> _items = [];
+    private bool _expanded = true;
+    private bool _jsReady;
+
+    protected override void OnInitialized()
+    {
+        SelectorState.OnChange += HandleServerChanged;
+        PinnedState.OnChange += HandlePinnedChanged;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _jsReady = true;
+        await LoadItemsAsync();
+    }
+
+    private async Task LoadItemsAsync()
+    {
+        try
+        {
+            var raw = await JS.InvokeAsync<JsonElement[]>("dbExplorerGetPinned", SelectorState.Current.Name);
+            _items = raw
+                .Select(e => new PinnedItem(
+                    e.GetProperty("schemaName").GetString() ?? "",
+                    e.GetProperty("objectName").GetString() ?? "",
+                    e.GetProperty("objectType").GetString() ?? ""))
+                .Where(x => !string.IsNullOrWhiteSpace(x.SchemaName) && !string.IsNullOrWhiteSpace(x.ObjectName))
+                .OrderBy(x => x.SchemaName)
+                .ThenBy(x => x.ObjectName)
+                .ToList();
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    private void HandleServerChanged() {
+        if (!_jsReady) return;
+        _ = InvokeAsync(LoadItemsAsync);
+    }
+
+    private void HandlePinnedChanged() {
+        if (!_jsReady) return;
+        _ = InvokeAsync(LoadItemsAsync);
+    }
+
+    private void ToggleExpanded() => _expanded = !_expanded;
+
+    private void Navigate(PinnedItem item) =>
+        Nav.NavigateTo($"/explore/{Uri.EscapeDataString(item.SchemaName)}/{Uri.EscapeDataString(item.ObjectName)}");
+
+    private async Task TogglePin(PinnedItem item)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("dbExplorerTogglePinned", SelectorState.Current.Name, item.SchemaName, item.ObjectName, item.ObjectType);
+            PinnedState.NotifyChanged();
+        }
+        catch { }
+    }
+
+    private static string TypeIcon(string type) => type switch
+    {
+        "TABLE" => "▦",
+        "VIEW" => "◫",
+        "PROCEDURE" => "λ",
+        "SCALAR_FUNCTION" => "ƒ",
+        "TABLE_FUNCTION" => "ƒ",
+        _ => "◈"
+    };
+
+    private record PinnedItem(string SchemaName, string ObjectName, string ObjectType);
+}
