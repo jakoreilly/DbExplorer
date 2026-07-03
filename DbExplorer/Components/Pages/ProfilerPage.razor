@@ -398,6 +398,7 @@
     private ElementReference _profilerBody;
     private DotNetObjectReference<ProfilerPage>? _dotNetRef;
     private bool _cmInitialized;
+    private bool _f5Bound;
 
     // ── Panel 2: Live Activity ────────────────────────────────────────────────
     private QueryResult? activityResult;
@@ -442,6 +443,17 @@
                 _cmInitialized = true;
             }
             catch { /* pre-render or JS unavailable */ }
+        }
+
+        if (!_f5Bound)
+        {
+            try
+            {
+                _dotNetRef ??= DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("dbExplorerBindProfilerF5", _profilerBody, _dotNetRef);
+                _f5Bound = true;
+            }
+            catch { }
         }
 
         // Highlight any new SQL code blocks in the page.
@@ -748,6 +760,7 @@
     {
         _refreshCts?.Cancel();
         _refreshCts?.Dispose();
+        try { _ = JS.InvokeVoidAsync("dbExplorerUnbindProfilerF5", _profilerBody); } catch { }
         _dotNetRef?.Dispose();
     }
 }

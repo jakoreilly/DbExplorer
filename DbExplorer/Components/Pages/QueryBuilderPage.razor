@@ -28,7 +28,7 @@
     return;
 }
 
-<div class="profiler-page">
+<div class="profiler-page" @ref="_pageBody">
     <div class="profiler-page-header">
         <h2>Query Builder</h2>
         <span class="profiler-connection-badge">
@@ -507,7 +507,23 @@
         _username = authState.User.Identity?.Name ?? "anonymous";
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_f5Bound) return;
+
+        try
+        {
+            _dotNetRef ??= DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("dbExplorerBindProfilerF5", _pageBody, _dotNetRef);
+            _f5Bound = true;
+        }
+        catch { }
+    }
+
     private int _dbGeneration;
+    private bool _f5Bound;
+    private ElementReference _pageBody;
+    private DotNetObjectReference<QueryBuilderPage>? _dotNetRef;
 
     private void HandleDatabaseChanged()
     {
@@ -549,6 +565,7 @@
         SelectorState.OnChange -= HandleDatabaseChanged;
         DiagramInterop.OnNodeRemove  = null;
         DiagramInterop.OnGraphChanged = null;
+        try { _ = JS.InvokeVoidAsync("dbExplorerUnbindProfilerF5", _pageBody); } catch { }
         DisposeCanvas();
     }
 
