@@ -36,7 +36,17 @@
                             </td>
                             @foreach (var col in Result.Columns)
                             {
-                                <td>@(row.TryGetValue(col.Name, out var v) ? v?.ToString() ?? "" : "")</td>
+                                var raw = row.TryGetValue(col.Name, out var v) ? v : null;
+                                <td>
+                                    @if (raw is null)
+                                    {
+                                        <span class="null-value">NULL</span>
+                                    }
+                                    else
+                                    {
+                                        @raw.ToString()
+                                    }
+                                </td>
                             }
                         </tr>
                         @if (_selectedRow == row)
@@ -51,10 +61,19 @@
                                         <table class="row-detail-table">
                                             @foreach (var col in Result.Columns)
                                             {
-                                                var fv = row.TryGetValue(col.Name, out var fval) ? fval?.ToString() ?? "(null)" : "(null)";
+                                                var fraw = row.TryGetValue(col.Name, out var fval) ? fval : null;
                                                 <tr>
                                                     <td class="field-name">@col.Name</td>
-                                                    <td class="field-value">@fv</td>
+                                                    <td class="field-value">
+                                                        @if (fraw is null)
+                                                        {
+                                                            <span class="null-value">NULL</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            @fraw.ToString()
+                                                        }
+                                                    </td>
                                                 </tr>
                                             }
                                         </table>

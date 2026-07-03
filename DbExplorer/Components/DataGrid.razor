@@ -1,5 +1,7 @@
+@using DbExplorer.Controllers
 @using DbExplorer.Core.Interfaces
 @using DbExplorer.Core.Models
+@using Microsoft.AspNetCore.Components.Web
 @inject IDataBrowsingService DataService
 @inject NavigationManager Nav
 @inject ILogger<DataGrid> Logger
@@ -7,24 +9,29 @@
 
 <div class="panel data-grid-panel">
     <div class="grid-toolbar">
-        <button @onclick="PrevPage" disabled="@(pageNumber <= 1)">← Prev</button>
-        <span>@ToolbarPageInfo</span>
-        <button @onclick="NextPage" disabled="@(!HasNextPage)">Next →</button>
-        <select @bind="pageSize" @bind:after="ResetAndLoad">
-            <option value="25">25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-            <option value="250">250</option>
-            <option value="500">500</option>
+        <button @onclick="PrevPage" disabled="@(pageNumber <= 1)" title="Previous page">← Prev</button>
+        <span class="grid-page-info">@ToolbarPageInfo</span>
+        <button @onclick="NextPage" disabled="@(!HasNextPage)" title="Next page">Next →</button>
+        <select @bind="pageSize" @bind:after="ResetAndLoad" title="Rows per page" aria-label="Rows per page">
+            <option value="25">25 rows</option>
+            <option value="50">50 rows</option>
+            <option value="100">100 rows</option>
+            <option value="250">250 rows</option>
+            <option value="500">500 rows</option>
         </select>
         @if (sortColumn is null)
         {
-            <button @onclick="TogglePkSortDirection" title="@PkSortLabel">@PkSortLabel</button>
+            <button @onclick="TogglePkSortDirection" title="Toggle primary-key sort direction">@PkSortLabel</button>
         }
         else
         {
             <button @onclick="ClearColumnSort" title="Clear column sort (return to PK)">✕ @sortColumn @ColSortArrow(sortColumn)</button>
         }
+        @if (activeFilters.Count > 0)
+        {
+            <button @onclick="ClearFilters" title="Clear filters">✕ Clear filters (@activeFilters.Count)</button>
+        }
+        <span class="grid-toolbar-spacer"></span>
         <span class="csv-export-group">
             <select @bind="exportScope" class="csv-scope-select" title="Choose CSV export scope">
                 <option value="page">This page</option>
@@ -40,7 +47,7 @@
 
     @if (isLoading)
     {
-        <p>Loading data…</p>
+        <div class="loading"><span class="spinner" aria-hidden="true"></span> Loading data…</div>
     }
     else if (error is not null)
     {
@@ -62,6 +69,49 @@
                             </th>
                         }
                     </tr>
+                    <tr class="filter-row">
+                        <th class="row-detail-col"></th>
+                        @foreach (var col in columns)
+                        {
+                            <th class="filter-cell">
+                                <select class="filter-op" value="@FilterOp(col)" @onchange="e => SetFilterOp(col, e.Value?.ToString())">
+                                    <option value="Contains">∗a∗</option>
+                                    <option value="Equals">a=b</option>
+                                    <option value="NotEquals">a≠b</option>
+                                    <option value="GreaterThan">a&gt;b</option>
+                                    <option value="LessThan">a&lt;b</option>
+                                    <option value="Between">a..b</option>
+                                    <option value="IsNull">NULL</option>
+                                    <option value="IsNotNull">NOT NULL</option>
+                                    <option value="StartsWith">a∗</option>
+                                </select>
+                                @if (FilterOp(col) == "Between")
+                                {
+                                    <input class="filter-input"
+                                           value="@GetFilterValue(col)"
+                                           @oninput="e => SetFilterValue(col, e.Value?.ToString())"
+                                           @onkeydown="e => OnFilterKeyDown(col, e)"
+                                           placeholder="Min"
+                                           disabled="@IsFilterDisabled(col)" />
+                                    <input class="filter-input"
+                                           value="@GetFilterValue2(col)"
+                                           @oninput="e => SetFilterValue2(col, e.Value?.ToString())"
+                                           @onkeydown="e => OnFilterKeyDown(col, e)"
+                                           placeholder="Max"
+                                           disabled="@IsFilterDisabled(col)" />
+                                }
+                                else
+                                {
+                                    <input class="filter-input"
+                                           value="@GetFilterValue(col)"
+                                           @oninput="e => SetFilterValue(col, e.Value?.ToString())"
+                                           @onkeydown="e => OnFilterKeyDown(col, e)"
+                                           placeholder="Filter"
+                                           disabled="@IsFilterDisabled(col)" />
+                                }
+                            </th>
+                        }
+                    </tr>
                 </thead>
                 <tbody>
                     @foreach (var row in rows)
@@ -72,8 +122,18 @@
                             </td>
                             @foreach (var col in columns)
                             {
-                                var val = row.Fields.TryGetValue(col, out var v) ? v?.ToString() ?? "" : "";
-                                <td @onclick="() => CopyCell(val)" title="Click to copy" class="copyable-cell">@val</td>
+                                var raw = row.Fields.TryGetValue(col, out var v) ? v : null;
+                                var val = raw?.ToString() ?? "";
+                                <td @onclick="() => CopyCell(val)" title="Click to copy" class="copyable-cell">
+                                    @if (raw is null)
+                                    {
+                                        <span class="null-value">NULL</span>
+                                    }
+                                    else
+                                    {
+                                        @val
+                                    }
+                                </td>
                             }
                         </tr>
                         @if (selectedRowForDetail == row)
@@ -91,7 +151,14 @@
                                                 <tr>
                                                     <td class="field-name">@field.Key</td>
                                                     <td class="field-value" @onclick="() => CopyCell(field.Value?.ToString() ?? string.Empty)" title="Click to copy">
-                                                        @(field.Value?.ToString() ?? "(null)")
+                                                        @if (field.Value is null)
+                                                        {
+                                                            <span class="null-value">NULL</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            @field.Value.ToString()
+                                                        }
                                                     </td>
                                                 </tr>
                                             }
@@ -105,9 +172,20 @@
             </table>
         </div>
     }
+    else if (activeFilters.Count > 0)
+    {
+        <div class="empty-state">
+            <span class="empty-state-icon" aria-hidden="true">▦</span>
+            No rows matched the current filters.
+            <div style="margin-top: 0.5rem;"><button @onclick="ClearFilters" type="button">Clear filters</button></div>
+        </div>
+    }
     else
     {
-        <p>No data.</p>
+        <div class="empty-state">
+            <span class="empty-state-icon" aria-hidden="true">▦</span>
+            This @(ObjectName) is empty — no rows to display.
+        </div>
     }
 </div>
 
@@ -121,6 +199,9 @@
     private SortDirection pkSortDirection = SortDirection.Descending;
     private string? sortColumn;
     private SortDirection sortColumnDir = SortDirection.Ascending;
+    private readonly Dictionary<string, string> columnFilters = [];
+    private readonly Dictionary<string, string> filterOps = [];
+    private List<ColumnFilter> activeFilters = [];
     private string exportScope = "page";
     private IReadOnlyList<DataRow>? rows;
     private List<string> columns = [];
@@ -146,11 +227,14 @@
     private string ColSortArrow(string col) =>
         sortColumn == col ? (sortColumnDir == SortDirection.Ascending ? "↑" : "↓") : "";
 
+    private string FilterOp(string col) => filterOps.TryGetValue(col, out var op) ? op : "Contains";
+
     private string CsvUrl
     {
         get
         {
-            var url = $"/api/data/export-csv?schema={Uri.EscapeDataString(SchemaName)}&objectName={Uri.EscapeDataString(ObjectName)}&scope={Uri.EscapeDataString(exportScope)}&sortDir={(int)pkSortDirection}";
+            var filterParam = activeFilters.Count > 0 ? $"&filters={Uri.EscapeDataString(DataController.EncodeFilters(activeFilters))}" : string.Empty;
+            var url = $"/api/data/export-csv?schema={Uri.EscapeDataString(SchemaName)}&objectName={Uri.EscapeDataString(ObjectName)}&scope={Uri.EscapeDataString(exportScope)}&sortDir={(int)pkSortDirection}&sortCol={(sortColumn is null ? string.Empty : Uri.EscapeDataString(sortColumn))}&sortColDir={(int)sortColumnDir}{filterParam}";
             if (exportScope == "page")
                 url += $"&page={pageNumber}&pageSize={pageSize}";
             return url;
@@ -162,7 +246,11 @@
         pageNumber = 1;
         pkSortDirection = SortDirection.Descending;
         sortColumn = null;
+        sortColumnDir = SortDirection.Ascending;
         exportScope = "page";
+        columnFilters.Clear();
+        filterOps.Clear();
+        activeFilters = [];
         selectedRowForDetail = null;
         await LoadData();
     }
@@ -171,7 +259,6 @@
     {
         isLoading = true;
         error = null;
-        columns = [];
         try
         {
             var paging = new PagingOptions
@@ -180,7 +267,8 @@
                 PageSize = pageSize,
                 OrderByPrimaryKey = pkSortDirection,
                 SortColumn = sortColumn,
-                SortColumnDirection = sortColumnDir
+                SortColumnDirection = sortColumnDir,
+                Filters = activeFilters.Count > 0 ? activeFilters : null
             };
 
             var result = await DataService.GetPagedDataAsync(SchemaName, ObjectName, paging);
@@ -188,7 +276,29 @@
             totalCount = result.TotalCount;
 
             if (rows.Count > 0)
-                columns = rows[0].Fields.Keys.ToList();
+            {
+                var newColumns = rows[0].Fields.Keys.ToList();
+                foreach (var col in newColumns)
+                {
+                    if (!columnFilters.ContainsKey(col))
+                        columnFilters[col] = string.Empty;
+                    if (!filterOps.ContainsKey(col))
+                        filterOps[col] = "Contains";
+                }
+
+                var staleColumns = columns.Where(c => !newColumns.Contains(c)).ToList();
+                foreach (var col in staleColumns)
+                {
+                    columnFilters.Remove(col);
+                    filterOps.Remove(col);
+                }
+
+                columns = newColumns;
+            }
+            else if (columns.Count == 0)
+            {
+                columns = [];
+            }
         }
         catch (Exception ex)
         {
@@ -245,6 +355,90 @@
         sortColumn = null;
         pageNumber = 1;
         await LoadData();
+    }
+
+    private async Task ApplyFilters()
+    {
+        activeFilters = columns
+            .SelectMany(col =>
+            {
+                var rawValue = columnFilters.GetValueOrDefault(col);
+                var op = filterOps.GetValueOrDefault(col, "Contains");
+                var value = rawValue?.Trim() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(value))
+                    return Array.Empty<ColumnFilter>();
+
+                if (op is "IsNull" or "IsNotNull")
+                    return new[] { new ColumnFilter(col, value, Enum.Parse<ColumnFilterOperator>(op)) };
+
+                if (op == "Between")
+                {
+                    var parts = value.Split('|', 2);
+                    return parts.Length == 2 && !string.IsNullOrWhiteSpace(parts[0]) && !string.IsNullOrWhiteSpace(parts[1])
+                        ? new[] { new ColumnFilter(col, parts[0].Trim(), ColumnFilterOperator.Between, parts[1].Trim()) }
+                        : Array.Empty<ColumnFilter>();
+                }
+
+                return new[] { new ColumnFilter(col, value, Enum.Parse<ColumnFilterOperator>(op)) };
+            })
+            .ToList();
+
+        pageNumber = 1;
+        await LoadData();
+    }
+
+    private async Task ClearFilters()
+    {
+        columnFilters.Clear();
+        filterOps.Clear();
+        activeFilters = [];
+        pageNumber = 1;
+        await LoadData();
+    }
+
+    private string GetFilterValue(string col)
+    {
+        var value = columnFilters.GetValueOrDefault(col, string.Empty);
+        var parts = value.Split('|', 2);
+        return parts[0];
+    }
+
+    private string GetFilterValue2(string col)
+    {
+        var value = columnFilters.GetValueOrDefault(col, string.Empty);
+        var parts = value.Split('|', 2);
+        return parts.Length > 1 ? parts[1] : string.Empty;
+    }
+
+    private void SetFilterValue(string col, string? value)
+    {
+        var current = columnFilters.GetValueOrDefault(col, string.Empty);
+        var parts = current.Split('|', 2);
+        var second = parts.Length > 1 ? parts[1] : string.Empty;
+        columnFilters[col] = $"{value ?? string.Empty}|{second}";
+    }
+
+    private void SetFilterValue2(string col, string? value)
+    {
+        var current = columnFilters.GetValueOrDefault(col, string.Empty);
+        var parts = current.Split('|', 2);
+        var first = parts.Length > 0 ? parts[0] : string.Empty;
+        columnFilters[col] = $"{first}|{value ?? string.Empty}";
+    }
+
+    private void SetFilterOp(string col, string? op)
+    {
+        if (string.IsNullOrWhiteSpace(op))
+            return;
+        filterOps[col] = op;
+    }
+
+    private bool IsFilterDisabled(string col) => filterOps.GetValueOrDefault(col, "Contains") is "IsNull" or "IsNotNull";
+
+    private async Task OnFilterKeyDown(string col, KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+            await ApplyFilters();
     }
 
     private void ToggleRowDetail(DataRow row)

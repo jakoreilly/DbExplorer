@@ -10,12 +10,27 @@
 @inject IJSRuntime JS
 @inject DatabaseSelectorState SelectorState
 @inject DbExplorer.Services.RecentlyViewedState RecentlyViewedState
+@inject DbExplorer.Services.PinnedState PinnedState
 @rendermode InteractiveServer
 
 <PageTitle>@SchemaName.@ObjectName — DbExplorer</PageTitle>
 
 <div class="explorer-page">
-    <h2>@SchemaName.<strong>@ObjectName</strong></h2>
+    <div class="object-header">
+        <h2><span class="schema-part">@SchemaName.</span><strong>@ObjectName</strong></h2>
+        @if (objectType is not null)
+        {
+            <span class="type-badge type-badge--@objectType">@objectType.Replace('_', ' ')</span>
+        }
+        <button class="icon-btn @(isPinned ? "icon-btn--active" : "")" type="button" @onclick="TogglePin"
+                title="@(isPinned ? "Unpin from sidebar" : "Pin to sidebar")"
+                aria-label="@(isPinned ? "Unpin from sidebar" : "Pin to sidebar")"
+                aria-pressed="@isPinned.ToString().ToLowerInvariant()">
+            <svg viewBox="0 0 24 24" fill="@(isPinned ? "currentColor" : "none")" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 17v5M9 4h6l-.6 6.1 2.6 2.9H7l2.6-2.9L9 4Z" />
+            </svg>
+        </button>
+    </div>
 
     <div class="tabs">
         <button class="tab @ActiveTab("columns")" @onclick='() => tab = "columns"'>Columns @Badge(columns?.Count)</button>
@@ -37,7 +52,7 @@
 
     @if (isLoading)
     {
-        <p>Loading…</p>
+        <div class="loading"><span class="spinner" aria-hidden="true"></span> Loading…</div>
     }
     else if (error is not null)
     {
@@ -82,12 +97,14 @@
     private ObjectDefinition? definition;
     private bool isLoading = true;
     private string? error;
+    private bool isPinned;
 
     protected override async Task OnParametersSetAsync()
     {
         isLoading = true;
         error = null;
         tab = "columns";
+        isPinned = false;
 
         try
         {
@@ -134,11 +151,27 @@
             {
                 await JS.InvokeVoidAsync("dbExplorerAddRecent", SchemaName, ObjectName, objectType, SelectorState.Current.Name);
                 RecentlyViewedState.NotifyItemAdded();
+                isPinned = await JS.InvokeAsync<bool>("dbExplorerIsPinned", SelectorState.Current.Name, SchemaName, ObjectName);
             }
             catch { /* Non-critical; JS may not be available during pre-render */ }
         }
     }
 
+    private async Task TogglePin()
+    {
+        if (objectType is null) return;
+        try
+        {
+            isPinned = await JS.InvokeAsync<bool>("dbExplorerTogglePinned",
+                SelectorState.Current.Name, SchemaName, ObjectName, objectType);
+            PinnedState.NotifyChanged();
+        }
+        catch { }
+    }
+
     private string ActiveTab(string name) => tab == name ? "active" : "";
-    private static string Badge(int? count) => count is > 0 ? $"({count})" : "";
+
+    private RenderFragment? Badge(int? count) => count is > 0
+        ? @<span class="tab-badge">@count</span>
+        : null;
 }

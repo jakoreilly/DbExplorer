@@ -3,6 +3,7 @@ using DbExplorer.Core.Models;
 using DbExplorer.Services;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
 
@@ -22,6 +23,13 @@ public sealed class DbExplorerWebFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+
+        // Negotiate (Windows) auth requires Kestrel's IConnectionItemsFeature and
+        // blows up under the in-memory TestServer — force external schemes off.
+        // UseSetting flows into WebApplicationBuilder.Configuration before Program.cs
+        // reads AuthOptions at startup (ConfigureAppConfiguration would be too late).
+        builder.UseSetting("Auth:Windows:Enabled", "false");
+        builder.UseSetting("Auth:Google:Enabled", "false");
 
         builder.ConfigureServices(services =>
         {

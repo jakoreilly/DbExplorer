@@ -3,7 +3,10 @@
 <div class="panel indexes-panel">
     @if (Indexes is null || Indexes.Count == 0)
     {
-        <p>No indexes found.</p>
+        <div class="empty-state">
+            <span class="empty-state-icon" aria-hidden="true">⚡</span>
+            No indexes found.
+        </div>
     }
     else
     {
@@ -21,11 +24,16 @@
                 @foreach (var idx in Indexes)
                 {
                     <tr>
-                        <td>@idx.IndexName</td>
-                        <td>@idx.Columns</td>
-                        <td>@(idx.IsUnique ? "YES" : "NO")</td>
-                        <td>@(idx.IsPrimaryKey ? "YES" : "NO")</td>
-                        <td>@(idx.IsClustered ? "YES" : "NO")</td>
+                        <td><strong>@idx.IndexName</strong></td>
+                        <td class="cell-mono">@idx.Columns</td>
+                        <td><span class="pill @(idx.IsUnique ? "pill--yes" : "pill--no")">@(idx.IsUnique ? "YES" : "NO")</span></td>
+                        <td>
+                            @if (idx.IsPrimaryKey)
+                            {
+                                <span class="pill pill--pk">PK</span>
+                            }
+                        </td>
+                        <td><span class="pill @(idx.IsClustered ? "pill--yes" : "pill--no")">@(idx.IsClustered ? "YES" : "NO")</span></td>
                     </tr>
                 }
             </tbody>

@@ -3,7 +3,10 @@
 <div class="panel triggers-panel">
     @if (Triggers is null || Triggers.Count == 0)
     {
-        <p>No triggers found.</p>
+        <div class="empty-state">
+            <span class="empty-state-icon" aria-hidden="true">⚙</span>
+            No triggers found.
+        </div>
     }
     else
     {
@@ -19,9 +22,9 @@
                 @foreach (var trig in Triggers)
                 {
                     <tr>
-                        <td>@trig.TriggerName</td>
-                        <td>@trig.Events</td>
-                        <td>@(trig.IsEnabled ? "YES" : "NO")</td>
+                        <td><strong>@trig.TriggerName</strong></td>
+                        <td class="cell-mono">@trig.Events</td>
+                        <td><span class="pill @(trig.IsEnabled ? "pill--yes" : "pill--no")">@(trig.IsEnabled ? "ENABLED" : "DISABLED")</span></td>
                     </tr>
                 }
             </tbody>

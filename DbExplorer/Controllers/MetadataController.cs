@@ -30,7 +30,7 @@ public sealed class MetadataController(
     [ProducesResponseType<IReadOnlyList<DatabaseObjectInfo>>(StatusCodes.Status200OK)]
     public async Task<IActionResult> GetObjects([FromQuery] string? schema, CancellationToken ct)
     {
-        var objects = await metadata.GetObjectsAsync(schema, ct);
+        var objects = await metadata.GetObjectsAsync(schema, ct: ct);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.MetadataAccess,
             schema, "objects", objects.Count, -1));
         return Ok(objects);

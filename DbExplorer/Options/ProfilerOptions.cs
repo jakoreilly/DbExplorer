@@ -31,4 +31,16 @@ public sealed class ProfilerOptions
     /// Defaults to 30 seconds; set higher for complex analytical queries.
     /// </summary>
     public int QueryTimeoutSeconds { get; init; } = 30;
+
+    /// <summary>
+    /// Directory where per-user profiler query history files (JSON-Lines) are stored.
+    /// When empty, defaults to <c>%LocalAppData%/DbExplorer/history</c>.
+    /// </summary>
+    public string? HistoryPath { get; init; }
+
+    /// <summary>
+    /// Maximum number of history entries retained per user before the oldest are trimmed.
+    /// Set to 0 to disable trimming.
+    /// </summary>
+    public int HistoryMaxEntries { get; init; } = 200;
 }

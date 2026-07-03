@@ -1,8 +1,45 @@
 @page "/"
+@using DbExplorer.Options
+@using Microsoft.Extensions.Options
+@inject IOptions<QueryBuilderOptions> QBOpts
+@inject IOptions<ProfilerOptions> ProfilerOpts
 
 <PageTitle>DbExplorer</PageTitle>
 
 <div class="welcome">
-    <h2>Welcome to DbExplorer</h2>
-    <p>Select an object from the left panel to start exploring.</p>
+    <div class="welcome-hero">
+        <h2>Welcome to DbExplorer</h2>
+        <p>Browse schemas, inspect metadata and query your databases — read-only and audited.</p>
+    </div>
+
+    <div class="welcome-cards">
+        <a class="welcome-card" href="/profiler">
+            <span class="welcome-card-icon" aria-hidden="true">⚡</span>
+            <h3>Query Profiler</h3>
+            <p>Run ad-hoc read-only queries, inspect execution plans and watch live server activity.</p>
+        </a>
+        @if (QBOpts.Value.Enabled)
+        {
+            <a class="welcome-card" href="/query-builder">
+                <span class="welcome-card-icon" aria-hidden="true">🧩</span>
+                <h3>Query Builder</h3>
+                <p>Compose SELECT queries visually — drag tables onto a canvas or use the form builder.</p>
+            </a>
+        }
+        <div class="welcome-card">
+            <span class="welcome-card-icon" aria-hidden="true">🔍</span>
+            <h3>Global Search</h3>
+            <p>Use the sidebar search to find any table, view, procedure or column across all schemas.</p>
+        </div>
+    </div>
+
+    <ul class="welcome-tips">
+        <li>📌 Pin frequently used objects from their page header to keep them at the top of the sidebar.</li>
+        <li>🕑 Recently viewed objects are remembered per server.</li>
+        @if (ProfilerOpts.Value.EnableQueryEditor)
+        {
+            <li><kbd>Ctrl</kbd> + <kbd>Enter</kbd> runs the current query in the Profiler editor.</li>
+        }
+        <li>Click any data cell to copy its value to the clipboard.</li>
+    </ul>
 </div>

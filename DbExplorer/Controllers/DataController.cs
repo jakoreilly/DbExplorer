@@ -29,10 +29,16 @@ public sealed class DataController(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
         [FromQuery] int sortDir = (int)SortDirection.Descending,
+        [FromQuery] string? sortCol = null,
+        [FromQuery] int sortColDir = (int)SortDirection.Ascending,
+        [FromQuery] string? filters = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(schema) || string.IsNullOrWhiteSpace(objectName))
             return Problem("schema and objectName are required.", statusCode: 400);
+
+        if (!TryParseFilters(filters, out var parsedFilters, out var filterError))
+            return Problem(filterError, statusCode: 400);
 
         try
         {
@@ -46,7 +52,12 @@ public sealed class DataController(
                 {
                     PageNumber = page,
                     PageSize = pageSize,
-                    OrderByPrimaryKey = direction
+                    OrderByPrimaryKey = direction,
+                    SortColumn = string.IsNullOrWhiteSpace(sortCol) ? null : sortCol,
+                    SortColumnDirection = sortColDir == (int)SortDirection.Descending
+                        ? SortDirection.Descending
+                        : SortDirection.Ascending,
+                    Filters = parsedFilters
                 },
                 ct);
 
@@ -81,10 +92,16 @@ public sealed class DataController(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 500,
         [FromQuery] int sortDir = (int)SortDirection.Descending,
+        [FromQuery] string? sortCol = null,
+        [FromQuery] int sortColDir = (int)SortDirection.Ascending,
+        [FromQuery] string? filters = null,
         CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(schema) || string.IsNullOrWhiteSpace(objectName))
             return Problem("schema and objectName are required.", statusCode: 400);
+
+        if (!TryParseFilters(filters, out var parsedFilters, out var filterError))
+            return Problem(filterError, statusCode: 400);
 
         try
         {
@@ -96,18 +113,29 @@ public sealed class DataController(
             if (normalizedScope is not "page" and not "all")
                 return Problem("scope must be either 'page' or 'all'.", statusCode: 400);
 
+            var sortColumn = string.IsNullOrWhiteSpace(sortCol) ? null : sortCol;
+            var sortColumnDirection = sortColDir == (int)SortDirection.Descending
+                ? SortDirection.Descending
+                : SortDirection.Ascending;
+
             var paging = normalizedScope == "all"
                 ? new PagingOptions
                 {
                     PageNumber = 1,
                     PageSize = options.Value.MaxExportRows,
-                    OrderByPrimaryKey = direction
+                    OrderByPrimaryKey = direction,
+                    SortColumn = sortColumn,
+                    SortColumnDirection = sortColumnDirection,
+                    Filters = parsedFilters
                 }
                 : new PagingOptions
                 {
                     PageNumber = page,
                     PageSize = pageSize,
-                    OrderByPrimaryKey = direction
+                    OrderByPrimaryKey = direction,
+                    SortColumn = sortColumn,
+                    SortColumnDirection = sortColumnDirection,
+                    Filters = parsedFilters
                 };
 
             var result = await dataBrowsing.GetPagedDataAsync(
@@ -134,6 +162,51 @@ public sealed class DataController(
             return Problem(ex.Message, statusCode: 404);
         }
     }
+
+    /// <summary>
+    /// Parses the compact filter encoding <c>col~op~value~value2;col2~op~value</c>
+    /// (each segment URL-escaped). Returns false with an error message on malformed input.
+    /// </summary>
+    internal static bool TryParseFilters(string? encoded, out IReadOnlyList<ColumnFilter>? filters, out string? error)
+    {
+        filters = null;
+        error = null;
+        if (string.IsNullOrWhiteSpace(encoded))
+            return true;
+
+        var list = new List<ColumnFilter>();
+        foreach (var entry in encoded.Split(';', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var parts = entry.Split('~');
+            if (parts.Length is < 2 or > 4 || string.IsNullOrWhiteSpace(parts[0]))
+            {
+                error = $"Malformed filter segment '{entry}'. Expected col~op~value[~value2].";
+                return false;
+            }
+
+            if (!Enum.TryParse<ColumnFilterOperator>(parts[1], ignoreCase: true, out var op))
+            {
+                error = $"Unknown filter operator '{parts[1]}'.";
+                return false;
+            }
+
+            var value = parts.Length > 2 ? Uri.UnescapeDataString(parts[2]) : "";
+            var value2 = parts.Length > 3 ? Uri.UnescapeDataString(parts[3]) : null;
+            list.Add(new ColumnFilter(Uri.UnescapeDataString(parts[0]), value, op, value2));
+        }
+
+        filters = list;
+        return true;
+    }
+
+    /// <summary>Inverse of <see cref="TryParseFilters"/> — used by the grid to build export URLs.</summary>
+    internal static string EncodeFilters(IEnumerable<ColumnFilter> filters)
+        => string.Join(";", filters.Select(f =>
+        {
+            static string Escape(string s) => Uri.EscapeDataString(s).Replace("~", "%7E");
+            var s = $"{Escape(f.ColumnName)}~{f.Operator}~{Escape(f.Value)}";
+            return f.Value2 is null ? s : s + "~" + Escape(f.Value2);
+        }));
 
     private static string BuildCsv(IReadOnlyList<DataRow> rows)
     {

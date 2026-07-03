@@ -3,7 +3,10 @@
 <div class="panel columns-panel">
     @if (Columns is null || Columns.Count == 0)
     {
-        <p>No columns found.</p>
+        <div class="empty-state">
+            <span class="empty-state-icon" aria-hidden="true">▤</span>
+            No columns found.
+        </div>
     }
     else
     {
@@ -14,8 +17,7 @@
                     <th>Column</th>
                     <th>Data Type</th>
                     <th>Nullable</th>
-                    <th>Max Length</th>
-                    <th>PK</th>
+                    <th>Key</th>
                     <th>Default</th>
                 </tr>
             </thead>
@@ -23,13 +25,35 @@
                 @foreach (var col in Columns)
                 {
                     <tr>
-                        <td>@col.OrdinalPosition</td>
+                        <td class="cell-mono">@col.OrdinalPosition</td>
                         <td><strong>@col.ColumnName</strong></td>
-                        <td>@col.DataType@(col.MaxLength.HasValue ? $"({col.MaxLength})" : "")</td>
-                        <td>@(col.IsNullable ? "YES" : "NO")</td>
-                        <td>@col.MaxLength</td>
-                        <td>@(col.IsPrimaryKey ? "🔑" : "")</td>
-                        <td>@col.DefaultValue</td>
+                        <td class="cell-mono">@FormatType(col)</td>
+                        <td>
+                            @if (col.IsNullable)
+                            {
+                                <span class="pill pill--yes">NULL</span>
+                            }
+                            else
+                            {
+                                <span class="pill pill--no">NOT NULL</span>
+                            }
+                        </td>
+                        <td>
+                            @if (col.IsPrimaryKey)
+                            {
+                                <span class="pill pill--pk">PK</span>
+                            }
+                        </td>
+                        <td class="cell-mono">
+                            @if (string.IsNullOrEmpty(col.DefaultValue))
+                            {
+                                <span class="null-value">—</span>
+                            }
+                            else
+                            {
+                                @col.DefaultValue
+                            }
+                        </td>
                     </tr>
                 }
             </tbody>
@@ -39,4 +63,13 @@
 
 @code {
     [Parameter] public IReadOnlyList<ColumnInfo>? Columns { get; set; }
+
+    private static string FormatType(ColumnInfo col)
+    {
+        if (col.MaxLength.HasValue)
+            return $"{col.DataType}({(col.MaxLength == -1 ? "max" : col.MaxLength)})";
+        if (col.NumericPrecision.HasValue && col.NumericScale.HasValue && col.NumericScale > 0)
+            return $"{col.DataType}({col.NumericPrecision},{col.NumericScale})";
+        return col.DataType;
+    }
 }

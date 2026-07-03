@@ -2,12 +2,27 @@
 @inject ThemeState ThemeState
 @inject IJSRuntime JS
 
-<button class="theme-toggle" type="button" @onclick="ToggleTheme">
-    @ButtonText
+<button class="icon-btn" type="button" @onclick="ToggleTheme"
+        title="@Tooltip" aria-label="@Tooltip">
+    @if (ThemeState.IsDarkMode)
+    {
+        @* Sun — clicking returns to light mode *@
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4.2" />
+            <path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6" />
+        </svg>
+    }
+    else
+    {
+        @* Moon — clicking switches to dark mode *@
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.4 14.2A8.3 8.3 0 0 1 9.8 3.6a8.3 8.3 0 1 0 10.6 10.6Z" />
+        </svg>
+    }
 </button>
 
 @code {
-    private string ButtonText => ThemeState.IsDarkMode ? "Light Mode" : "Dark Mode";
+    private string Tooltip => ThemeState.IsDarkMode ? "Switch to light mode" : "Switch to dark mode";
 
     private async Task ToggleTheme()
     {

@@ -1,9 +1,13 @@
 @using DbExplorer.Core.Models
+@inject NavigationManager Nav
 
 <div class="panel fkeys-panel">
     @if (ForeignKeys is null || ForeignKeys.Count == 0)
     {
-        <p>No foreign keys found.</p>
+        <div class="empty-state">
+            <span class="empty-state-icon" aria-hidden="true">🔗</span>
+            No foreign keys found.
+        </div>
     }
     else
     {
@@ -19,9 +23,13 @@
                 @foreach (var fk in ForeignKeys)
                 {
                     <tr>
-                        <td>@fk.ConstraintName</td>
-                        <td>@fk.ColumnName</td>
-                        <td>@fk.ReferencedSchema.@fk.ReferencedTable (@fk.ReferencedColumn)</td>
+                        <td><strong>@fk.ConstraintName</strong></td>
+                        <td class="cell-mono">@fk.ColumnName</td>
+                        <td>
+                            <a href="@ExploreUrl(fk)" title="Open @fk.ReferencedSchema.@fk.ReferencedTable">
+                                @fk.ReferencedSchema.@fk.ReferencedTable</a>
+                            <span class="cell-mono"> (@fk.ReferencedColumn)</span>
+                        </td>
                     </tr>
                 }
             </tbody>
@@ -31,4 +39,7 @@
 
 @code {
     [Parameter] public IReadOnlyList<ForeignKeyInfo>? ForeignKeys { get; set; }
+
+    private static string ExploreUrl(ForeignKeyInfo fk) =>
+        $"/explore/{Uri.EscapeDataString(fk.ReferencedSchema)}/{Uri.EscapeDataString(fk.ReferencedTable)}";
 }

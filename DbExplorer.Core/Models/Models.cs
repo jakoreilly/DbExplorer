@@ -152,27 +152,6 @@ public record PagingOptions
     public IReadOnlyList<ColumnFilter>? Filters { get; init; }
 }
 
-public enum ColumnFilterOperator
-{
-    Contains,
-    StartsWith,
-    Equals,
-    NotEquals,
-    GreaterThan,
-    LessThan,
-    IsNull,
-    IsNotNull,
-    Between
-}
-
-/// <summary>A single WHERE-clause condition applied to a data grid.</summary>
-public record ColumnFilter(
-    string ColumnName,
-    string? Value,
-    ColumnFilterOperator Operator = ColumnFilterOperator.Contains,
-    string? Value2 = null
-);
-
 // ── Search models ─────────────────────────────────────────────────────────────
 
 /// <summary>A column whose name matched a global search term, with its owning table.</summary>
@@ -190,15 +169,41 @@ public record SearchResult(
 
 // ── Column intelligence models ────────────────────────────────────────────────
 
+/// <summary>
+/// Comparison applied by a <see cref="ColumnFilter"/>. Contains is the default (legacy LIKE behaviour).
+/// </summary>
+public enum ColumnFilterOperator
+{
+    Contains,
+    Equals,
+    NotEquals,
+    GreaterThan,
+    LessThan,
+    Between,
+    IsNull,
+    IsNotNull,
+    StartsWith
+}
+
+/// <summary>
+/// A single column predicate. The column name is validated against the live catalog
+/// and quoted by the service; values are always passed as SQL parameters.
+/// Value2 is only used by <see cref="ColumnFilterOperator.Between"/>.
+/// </summary>
+public sealed record ColumnFilter(
+    string ColumnName,
+    string Value,
+    ColumnFilterOperator Operator = ColumnFilterOperator.Contains,
+    string? Value2 = null);
+
 /// <summary>Instant statistics for a single column of a table or view.</summary>
 public record ColumnStats(
     string ColumnName,
-    long TotalRows,
-    long NonNullRows,
-    long DistinctValues,
+    long RowCount,
+    long NonNullCount,
+    long DistinctCount,
     string? MinValue,
-    string? MaxValue,
-    long ElapsedMs = -1
+    string? MaxValue
 );
 
 // ── Profiler models ───────────────────────────────────────────────────────────

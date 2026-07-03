@@ -54,33 +54,58 @@ public sealed class DataBrowsingService(
             ? string.Join(", ", pkColumns.Select(c => $"{dialect.QuoteIdentifier(c)} {direction}"))
             : null;
 
-        // Determine ORDER BY: explicit column takes precedence over PK sort
-        string? orderByClause;
+        var hasFilters = paging.Filters is { Count: > 0 };
+        HashSet<string>? catalogColumns = null;
+        if (hasFilters || !string.IsNullOrWhiteSpace(paging.SortColumn))
+            catalogColumns = await GetColumnNamesAsync(conn, schemaName, objectName, ct);
+
+        string? orderByClause = orderByPk;
         if (!string.IsNullOrWhiteSpace(paging.SortColumn))
         {
             dialect.ThrowIfInvalidIdentifier(paging.SortColumn, nameof(paging.SortColumn));
-            var colDir = paging.SortColumnDirection == SortDirection.Ascending ? "ASC" : "DESC";
-            orderByClause = $"{dialect.QuoteIdentifier(paging.SortColumn)} {colDir}";
-        }
-        else
-        {
-            orderByClause = orderByPk;
+            if (catalogColumns is not null && catalogColumns.Contains(paging.SortColumn))
+            {
+                var colDir = paging.SortColumnDirection == SortDirection.Ascending ? "ASC" : "DESC";
+                orderByClause = $"{dialect.QuoteIdentifier(paging.SortColumn)} {colDir}";
+            }
         }
 
-        // Count (skipped when EagerRowCount = false for large tables/views)
+        var args = new DynamicParameters();
+        var whereClause = string.Empty;
+        if (hasFilters)
+        {
+            var predicates = new List<string>();
+            var i = 0;
+            foreach (var filter in paging.Filters!)
+            {
+                if (string.IsNullOrWhiteSpace(filter.ColumnName) || catalogColumns is null || !catalogColumns.Contains(filter.ColumnName))
+                    continue;
+
+                dialect.ThrowIfInvalidIdentifier(filter.ColumnName, nameof(filter.ColumnName));
+                var predicate = FilterSql.BuildPredicate(
+                    dialect.QuoteIdentifier(filter.ColumnName), $"f{i++}", filter, args);
+                if (predicate is not null)
+                    predicates.Add(predicate);
+            }
+
+            if (predicates.Count > 0)
+                whereClause = "WHERE " + string.Join(" AND ", predicates);
+        }
+
         int totalCount = -1;
         if (_options.EagerRowCount)
         {
             var countSql = factory.Provider switch
             {
-                DatabaseProvider.SqlServer => $"SELECT COUNT_BIG(*) FROM {fullName}",
-                DatabaseProvider.PostgreSql or DatabaseProvider.MySql => $"SELECT COUNT(*) FROM {fullName}",
+                DatabaseProvider.SqlServer => $"SELECT COUNT_BIG(*) FROM {fullName} {whereClause}",
+                DatabaseProvider.PostgreSql or DatabaseProvider.MySql => $"SELECT COUNT(*) FROM {fullName} {whereClause}",
                 _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
             };
 
             totalCount = await conn.ExecuteScalarAsync<int>(
                 new CommandDefinition(
                     countSql,
+                    args,
                     commandTimeout: _options.QueryTimeoutSeconds,
                     cancellationToken: ct));
         }
@@ -90,6 +115,7 @@ public sealed class DataBrowsingService(
             DatabaseProvider.SqlServer => $"""
                 SELECT *
                 FROM {fullName}
+                {whereClause}
                 ORDER BY {(orderByClause ?? "(SELECT NULL)")}
                 OFFSET @offset ROWS
                 FETCH NEXT @pageSize ROWS ONLY
@@ -97,16 +123,20 @@ public sealed class DataBrowsingService(
             DatabaseProvider.PostgreSql or DatabaseProvider.MySql => $"""
                 SELECT *
                 FROM {fullName}
+                {whereClause}
                 {(orderByClause is not null ? "ORDER BY " + orderByClause : "")}
                 LIMIT @pageSize OFFSET @offset
                 """,
             _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
         };
 
+        args.Add("offset", offset);
+        args.Add("pageSize", pageSize);
+
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var rawRows = await conn.QueryAsync(
             new CommandDefinition(dataSql,
-                new { offset, pageSize },
+                args,
                 commandTimeout: _options.QueryTimeoutSeconds,
                 cancellationToken: ct));
 
@@ -126,6 +156,104 @@ public sealed class DataBrowsingService(
         profiler.Record(factory.Provider.ToString(), $"SELECT * FROM {schemaName}.{objectName} (page {pageNumber})", sw.ElapsedMilliseconds, dataRows.Count);
 
         return new PagedResult<DataRow>(dataRows, pageNumber, pageSize, totalCount);
+    }
+
+    public async Task<IReadOnlyList<string>> GetPrimaryKeyColumnsAsync(
+        string schemaName,
+        string objectName,
+        CancellationToken ct = default)
+    {
+        dialect.ThrowIfInvalidIdentifier(schemaName, nameof(schemaName));
+        dialect.ThrowIfInvalidIdentifier(objectName, nameof(objectName));
+        await validator.ValidateObjectAsync(schemaName, objectName, ct);
+
+        await using var conn = factory.Create();
+        await conn.OpenAsync(ct);
+        return await GetPrimaryKeyColumnsAsync(conn, schemaName, objectName, ct);
+    }
+
+    public async Task<ColumnStats> GetColumnStatsAsync(
+        string schemaName,
+        string objectName,
+        string columnName,
+        IReadOnlyList<ColumnFilter>? filters = null,
+        CancellationToken ct = default)
+    {
+        dialect.ThrowIfInvalidIdentifier(schemaName, nameof(schemaName));
+        dialect.ThrowIfInvalidIdentifier(objectName, nameof(objectName));
+        dialect.ThrowIfInvalidIdentifier(columnName, nameof(columnName));
+        await validator.ValidateObjectAsync(schemaName, objectName, ct);
+
+        var fullName = dialect.QuoteQualifiedName(schemaName, objectName);
+        var col = dialect.QuoteIdentifier(columnName);
+
+        await using var conn = factory.Create();
+        await conn.OpenAsync(ct);
+
+        var args = new DynamicParameters();
+        var whereClause = string.Empty;
+        if (filters is { Count: > 0 })
+        {
+            var catalogColumns = await GetColumnNamesAsync(conn, schemaName, objectName, ct);
+            var predicates = new List<string>();
+            var i = 0;
+            foreach (var filter in filters)
+            {
+                if (string.IsNullOrWhiteSpace(filter.ColumnName) || !catalogColumns.Contains(filter.ColumnName))
+                    continue;
+
+                dialect.ThrowIfInvalidIdentifier(filter.ColumnName, nameof(filter.ColumnName));
+                var predicate = FilterSql.BuildPredicate(
+                    dialect.QuoteIdentifier(filter.ColumnName), $"f{i++}", filter, args);
+                if (predicate is not null)
+                    predicates.Add(predicate);
+            }
+
+            if (predicates.Count > 0)
+                whereClause = "WHERE " + string.Join(" AND ", predicates);
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        var countSql = factory.Provider switch
+        {
+            DatabaseProvider.SqlServer =>
+                $"SELECT COUNT_BIG(*) AS RowCount0, COUNT_BIG({col}) AS NonNullCount, COUNT_BIG(DISTINCT {col}) AS DistinctCount FROM {fullName} {whereClause}",
+            DatabaseProvider.PostgreSql or DatabaseProvider.MySql =>
+                $"SELECT COUNT(*) AS RowCount0, COUNT({col}) AS NonNullCount, COUNT(DISTINCT {col}) AS DistinctCount FROM {fullName} {whereClause}",
+            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+        };
+
+        var counts = await conn.QuerySingleAsync(
+            new CommandDefinition(countSql, args, commandTimeout: _options.QueryTimeoutSeconds, cancellationToken: ct));
+
+        string? minValue = null, maxValue = null;
+        try
+        {
+            var minMax = await conn.QuerySingleAsync(
+                new CommandDefinition(
+                    $"SELECT MIN({col}) AS MinValue, MAX({col}) AS MaxValue FROM {fullName} {whereClause}",
+                    args,
+                    commandTimeout: _options.QueryTimeoutSeconds,
+                    cancellationToken: ct));
+            minValue = ((object?)minMax.MinValue) is DBNull or null ? null : Convert.ToString(minMax.MinValue);
+            maxValue = ((object?)minMax.MaxValue) is DBNull or null ? null : Convert.ToString(minMax.MaxValue);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "MIN/MAX unavailable for {Schema}.{Object}.{Column}", schemaName, objectName, columnName);
+        }
+
+        sw.Stop();
+        profiler.Record(factory.Provider.ToString(), $"Column stats {schemaName}.{objectName}.{columnName}", sw.ElapsedMilliseconds, 1);
+
+        return new ColumnStats(
+            columnName,
+            (long)counts.RowCount0,
+            (long)counts.NonNullCount,
+            (long)counts.DistinctCount,
+            minValue,
+            maxValue);
     }
 
     private async Task<IReadOnlyList<string>> GetPrimaryKeyColumnsAsync(
@@ -181,5 +309,42 @@ public sealed class DataBrowsingService(
                 cancellationToken: ct));
 
         return rows.ToList();
+    }
+
+    private async Task<HashSet<string>> GetColumnNamesAsync(
+        System.Data.Common.DbConnection conn,
+        string schemaName,
+        string objectName,
+        CancellationToken ct)
+    {
+        var sql = factory.Provider switch
+        {
+            DatabaseProvider.SqlServer =>
+                """
+                SELECT c.name
+                FROM sys.columns c
+                JOIN sys.objects o ON c.object_id = o.object_id
+                JOIN sys.schemas s ON o.schema_id = s.schema_id
+                WHERE s.name = @schema
+                  AND o.name = @obj
+                """,
+            DatabaseProvider.PostgreSql or DatabaseProvider.MySql =>
+                """
+                SELECT c.column_name
+                FROM information_schema.columns c
+                WHERE c.table_schema = @schema
+                  AND c.table_name = @obj
+                """,
+            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+        };
+
+        var rows = await conn.QueryAsync<string>(
+            new CommandDefinition(
+                sql,
+                new { schema = schemaName, obj = objectName },
+                commandTimeout: _options.QueryTimeoutSeconds,
+                cancellationToken: ct));
+
+        return rows.ToHashSet(StringComparer.Ordinal);
     }
 }

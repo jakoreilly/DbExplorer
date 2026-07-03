@@ -1,33 +1,54 @@
 @inherits LayoutComponentBase
 @using DbExplorer.Services
 @using DbExplorer.Options
+@using Microsoft.AspNetCore.Components.Routing
 @using Microsoft.Extensions.Options
 @inject ThemeState ThemeState
+@inject DensityState DensityState
 @inject IJSRuntime JS
 @inject IOptions<QueryBuilderOptions> QBOpts
 @implements IDisposable
 
-<div class="layout @(ThemeState.IsDarkMode ? "theme-dark" : "theme-light")" id="main-layout">
+<div class="layout @(ThemeState.IsDarkMode ? "theme-dark" : "theme-light") @(DensityState.IsCompact ? "density-compact" : "")" id="main-layout">
     <div class="signing-out-overlay" aria-hidden="true">Signing out…</div>
     <nav class="sidebar">
         <div class="sidebar-header">
-            <h1><a href="/" class="sidebar-title-link">DbExplorer</a></h1>
+            <a href="/" class="sidebar-title-link">
+                <span class="brand-logo" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                        <ellipse cx="12" cy="6" rx="7" ry="2.8" />
+                        <path d="M5 6v12c0 1.55 3.13 2.8 7 2.8s7-1.25 7-2.8V6" />
+                        <path d="M5 12c0 1.55 3.13 2.8 7 2.8s7-1.25 7-2.8" />
+                    </svg>
+                </span>
+                <span class="brand-text">
+                    <span class="brand-name">DbExplorer</span>
+                    <span class="brand-tag">Database Browser</span>
+                </span>
+            </a>
         </div>
         <nav class="sidebar-nav">
-            <a href="/profiler" class="sidebar-nav-link">Profiler</a>
+            <NavLink href="/" Match="NavLinkMatch.All" class="sidebar-nav-link">Explorer</NavLink>
+            <NavLink href="/profiler" class="sidebar-nav-link">Profiler</NavLink>
             @if (QBOpts.Value.Enabled)
             {
-                <a href="/query-builder" class="sidebar-nav-link">Query Builder</a>
+                <NavLink href="/query-builder" class="sidebar-nav-link">Query Builder</NavLink>
             }
-            <a href="/" class="sidebar-nav-link">Explorer</a>
         </nav>
+        <PinnedObjects />
         <RecentlyViewed />
         <ObjectTree />
     </nav>
     <main class="main-content">
         <div class="top-bar">
+            <span class="top-bar-spacer"></span>
+            <span class="db-selector-group">
+                <DatabaseSelector />
+            </span>
+            <span class="top-bar-divider" aria-hidden="true"></span>
+            <DensityToggle />
             <ThemeToggle />
-            <DatabaseSelector />
+            <span class="top-bar-divider" aria-hidden="true"></span>
             <form method="post" action="/logout" class="logout-form" @formname="logout-form"
                   onsubmit="document.getElementById('main-layout').classList.add('signing-out')">
                 <AntiforgeryToken />
@@ -43,7 +64,8 @@
 @code {
     protected override void OnInitialized()
     {
-        ThemeState.OnChange += HandleThemeChanged;
+        ThemeState.OnChange += HandleStateChanged;
+        DensityState.OnChange += HandleStateChanged;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -55,17 +77,21 @@
             ThemeState.SetDarkMode(savedDark);
             // Ensure html element class stays in sync (covers case where circuit reconnects)
             await JS.InvokeVoidAsync("dbExplorerSetTheme", savedDark);
+
+            var savedCompact = await JS.InvokeAsync<bool>("dbExplorerGetDensity");
+            DensityState.SetCompact(savedCompact);
         }
         catch { }
     }
 
-    private void HandleThemeChanged()
+    private void HandleStateChanged()
     {
         _ = InvokeAsync(StateHasChanged);
     }
 
     public void Dispose()
     {
-        ThemeState.OnChange -= HandleThemeChanged;
+        ThemeState.OnChange -= HandleStateChanged;
+        DensityState.OnChange -= HandleStateChanged;
     }
 }

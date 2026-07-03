@@ -11,10 +11,9 @@ using Serilog;
 using System.Threading.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
 
-if (builder.Environment.IsDevelopment())
-{
-    builder.Configuration.AddUserSecrets<Program>(optional: true, reloadOnChange: true);
-}
+// Load local developer secrets from the machine-specific user-secrets store.
+// These values are read from the OS profile and are not part of the repository.
+builder.Configuration.AddUserSecrets<Program>(optional: true, reloadOnChange: true);
 
 // ── Serilog ──────────────────────────────────────────────────────────────────
 Log.Logger = new LoggerConfiguration()

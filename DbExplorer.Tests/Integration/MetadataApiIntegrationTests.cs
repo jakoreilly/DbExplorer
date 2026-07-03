@@ -56,7 +56,7 @@ public class MetadataApiIntegrationTests : IClassFixture<DbExplorerWebFactory>
     public async Task GetObjects_WithSchema_FiltersCorrectly()
     {
         _factory.MetadataMock
-            .Setup(m => m.GetObjectsAsync("dbo", It.IsAny<CancellationToken>()))
+            .Setup(m => m.GetObjectsAsync("dbo", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync([new DatabaseObjectInfo("dbo", "Users", "TABLE")]);
 
         var response = await _client.GetAsync("/api/metadata/objects?schema=dbo");

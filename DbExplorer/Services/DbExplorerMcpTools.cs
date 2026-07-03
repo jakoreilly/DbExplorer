@@ -43,7 +43,7 @@ public sealed class DbExplorerMcpTools(
         [Description("Schema name (e.g. 'public', 'dbo'). Leave empty for all schemas.")] string schema,
         CancellationToken ct = default)
     {
-        var objects = await metadata.GetObjectsAsync(string.IsNullOrWhiteSpace(schema) ? null : schema, ct);
+        var objects = await metadata.GetObjectsAsync(string.IsNullOrWhiteSpace(schema) ? null : schema, ct: ct);
         audit.Log(new AuditEvent(DateTimeOffset.UtcNow, Username, AuditAction.McpToolCall,
             schema, null, objects.Count, -1, Context: new Dictionary<string, string?> { ["tool"] = nameof(ListObjects) }));
         if (!objects.Any()) return "No objects found.";

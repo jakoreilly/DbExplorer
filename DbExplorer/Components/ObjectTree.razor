@@ -22,7 +22,13 @@
     }
 
     <div class="search-box">
-        <input @bind="searchTerm" @bind:event="oninput" placeholder="Filter objects…" />
+        <span class="search-box-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.8-3.8" />
+            </svg>
+        </span>
+        <input value="@searchTerm" @oninput="OnSearchInput" placeholder="Search tables, views, columns…" aria-label="Search database objects" />
     </div>
 
     @if (!string.IsNullOrWhiteSpace(currentCatalog))
@@ -49,11 +55,54 @@
 
     @if (isLoading)
     {
-        <p class="loading">Loading…</p>
+        <div class="loading"><span class="spinner" aria-hidden="true"></span> Loading…</div>
     }
     else if (loadError is not null)
     {
         <div class="error">Failed to load database objects: @loadError</div>
+    }
+    else if (IsSearchActive)
+    {
+        <div class="search-results">
+            @if (isSearching)
+            {
+                <div class="search-searching"><span class="spinner" aria-hidden="true"></span></div>
+            }
+            else if (searchResult is null || (searchResult.Objects.Count == 0 && searchResult.Columns.Count == 0))
+            {
+                <div class="search-no-hits">No objects or columns match “@searchTerm”.</div>
+            }
+            else
+            {
+                @if (searchResult.Objects.Count > 0)
+                {
+                    <div class="search-results-header"><span>Objects</span><span class="type-count">@searchResult.Objects.Count</span></div>
+                    @foreach (var obj in searchResult.Objects)
+                    {
+                        <button class="object-node" type="button" title="@obj.SchemaName.@obj.ObjectName (@obj.ObjectType)"
+                                @onclick="() => SelectObject(obj)">
+                            <i class="obj-icon obj-icon--@obj.ObjectType">@TypeIcon(obj.ObjectType)</i>
+                            <span class="object-node-name"><span class="search-hit-schema">@obj.SchemaName.</span>@obj.ObjectName</span>
+                        </button>
+                    }
+                }
+                @if (searchResult.Columns.Count > 0)
+                {
+                    <div class="search-results-header"><span>Columns</span><span class="type-count">@searchResult.Columns.Count</span></div>
+                    @foreach (var hit in searchResult.Columns)
+                    {
+                        <button class="object-node" type="button" title="Column @hit.ColumnName in @hit.SchemaName.@hit.TableName"
+                                @onclick="() => NavigateToTable(hit)">
+                            <i class="obj-icon">▤</i>
+                            <span class="object-node-name">
+                                @hit.ColumnName
+                                <span class="search-hit-column">in @hit.SchemaName.@hit.TableName</span>
+                            </span>
+                        </button>
+                    }
+                }
+            }
+        </div>
     }
     else if (schemas is not null)
     {
@@ -61,7 +110,8 @@
         {
             <div class="schema-node">
                 <button class="schema-toggle" type="button" @onclick="() => ToggleSchema(schema.SchemaName)">
-                    @(expandedSchemas.Contains(schema.SchemaName) ? "▾" : "▸") @schema.SchemaName
+                    <span class="schema-caret" aria-hidden="true">@(expandedSchemas.Contains(schema.SchemaName) ? "▾" : "▸")</span>
+                    @schema.SchemaName
                 </button>
 
                 @if (expandedSchemas.Contains(schema.SchemaName) && objectsBySchema.TryGetValue(schema.SchemaName, out var objs))
@@ -81,14 +131,13 @@
                         foreach (var group in objs.GroupBy(o => o.ObjectType))
                         {
                             <div class="type-group">
-                                <span class="type-label">@group.Key</span>
-                                @foreach (var obj in group.Where(o =>
-                                    string.IsNullOrWhiteSpace(searchTerm) ||
-                                    o.ObjectName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase)))
+                                <span class="type-label">@GroupLabel(group.Key) <span class="type-count">@group.Count()</span></span>
+                                @foreach (var obj in group)
                                 {
                                     <button class="object-node @(selectedObject == obj ? "selected" : "")" type="button"
                                             @onclick="() => SelectObject(obj)">
-                                        @obj.ObjectName
+                                        <i class="obj-icon obj-icon--@obj.ObjectType" aria-hidden="true">@TypeIcon(obj.ObjectType)</i>
+                                        <span class="object-node-name">@obj.ObjectName</span>
                                     </button>
                                 }
                             </div>
@@ -110,6 +159,12 @@
     private string searchTerm = "";
     private bool isLoading = true;
     private string? loadError;
+
+    private SearchResult? searchResult;
+    private bool isSearching;
+    private CancellationTokenSource? _searchCts;
+
+    private bool IsSearchActive => searchTerm.Trim().Length >= 2;
 
     [Inject] private ILogger<ObjectTree> Logger { get; set; } = default!;
 
@@ -134,6 +189,45 @@
         {
             isLoading = false;
         }
+    }
+
+    private async Task OnSearchInput(ChangeEventArgs args)
+    {
+        searchTerm = args.Value?.ToString() ?? "";
+
+        _searchCts?.Cancel();
+        if (!IsSearchActive)
+        {
+            searchResult = null;
+            isSearching = false;
+            return;
+        }
+
+        _searchCts = new CancellationTokenSource();
+        var token = _searchCts.Token;
+        var term = searchTerm.Trim();
+        isSearching = true;
+
+        try
+        {
+            await Task.Delay(300, token);   // debounce keystrokes
+            searchResult = await MetadataService.SearchAsync(term, token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;                          // superseded by newer keystroke
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Global search failed for term {Term}", term);
+            searchResult = new SearchResult([], []);
+        }
+        finally
+        {
+            if (!token.IsCancellationRequested)
+                isSearching = false;
+        }
+        StateHasChanged();
     }
 
     private async Task LoadCatalogsAsync()
@@ -244,6 +338,29 @@
         Nav.NavigateTo($"/explore/{Uri.EscapeDataString(obj.SchemaName)}/{Uri.EscapeDataString(obj.ObjectName)}");
     }
 
+    private void NavigateToTable(ColumnSearchHit hit) =>
+        Nav.NavigateTo($"/explore/{Uri.EscapeDataString(hit.SchemaName)}/{Uri.EscapeDataString(hit.TableName)}");
+
+    internal static string TypeIcon(string type) => type switch
+    {
+        "TABLE"           => "▦",
+        "VIEW"            => "◫",
+        "PROCEDURE"       => "λ",
+        "SCALAR_FUNCTION" => "ƒ",
+        "TABLE_FUNCTION"  => "ƒ",
+        _                 => "◈"
+    };
+
+    private static string GroupLabel(string type) => type switch
+    {
+        "TABLE"           => "Tables",
+        "VIEW"            => "Views",
+        "PROCEDURE"       => "Procedures",
+        "SCALAR_FUNCTION" => "Scalar functions",
+        "TABLE_FUNCTION"  => "Table functions",
+        _                 => type
+    };
+
     private void HandleDatabaseChanged()
     {
         _ = InvokeAsync(async () =>
@@ -254,6 +371,8 @@
             objectsBySchema.Clear();
             expandedSchemas.Clear();
             selectedObject = null;
+            searchTerm = "";
+            searchResult = null;
             StateHasChanged();
             try
             {
@@ -275,6 +394,7 @@
 
     public void Dispose()
     {
+        _searchCts?.Cancel();
         SelectorState.OnChange -= HandleDatabaseChanged;
     }
 }

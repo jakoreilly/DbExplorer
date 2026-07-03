@@ -4,7 +4,10 @@
 <div class="panel definition-panel">
     @if (Definition is null)
     {
-        <p>No definition available.</p>
+        <div class="empty-state">
+            <span class="empty-state-icon" aria-hidden="true">λ</span>
+            No definition available — the current login may lack <code>VIEW DEFINITION</code> permission.
+        </div>
     }
     else
     {

@@ -178,6 +178,7 @@ public sealed class DbConnectionFactory : IDbConnectionFactory
     private readonly string? _staticConnectionString;
     private readonly DatabaseSelectorState? _selectorState;
     private readonly IConfiguration? _configuration;
+    private readonly IRequestServerContext? _requestContext;
 
     public DbConnectionFactory(DatabaseProvider provider, string connectionString)
     {
@@ -192,18 +193,54 @@ public sealed class DbConnectionFactory : IDbConnectionFactory
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     }
 
-    public DatabaseProvider Provider => _selectorState?.Current.Provider ?? _staticProvider;
+    public DbConnectionFactory(
+        DatabaseSelectorState selectorState,
+        IConfiguration configuration,
+        IRequestServerContext requestContext)
+        : this(selectorState, configuration)
+    {
+        _requestContext = requestContext ?? throw new ArgumentNullException(nameof(requestContext));
+    }
+
+    /// <summary>
+    /// Active connection option: the per-request server override when one is present
+    /// (API/MCP requests), otherwise the circuit's selected connection.
+    /// </summary>
+    private DatabaseConnectionOption ResolveOption()
+    {
+        var state = _selectorState!;
+        if (_requestContext is null)
+            return state.Current;
+
+        var server = _requestContext.CurrentServer;
+        return state.Options.FirstOrDefault(o =>
+                string.Equals(o.Name, server, StringComparison.OrdinalIgnoreCase))
+            ?? state.Current;
+    }
+
+    public DatabaseProvider Provider => _selectorState is null ? _staticProvider : ResolveOption().Provider;
 
     public DbConnection Create()
     {
         var provider = Provider;
-        var connectionString = _selectorState is null
-            ? _staticConnectionString!
-            : _configuration!.GetConnectionString(_selectorState.Current.ConnectionStringName)
-              ?? throw new InvalidOperationException(
-                  $"Connection string '{_selectorState.Current.ConnectionStringName}' is required for '{_selectorState.Current.Name}'.");
+        string connectionString;
+        string? selectedCatalog;
 
-        var selectedCatalog = _selectorState?.SelectedCatalog;
+        if (_selectorState is null)
+        {
+            connectionString = _staticConnectionString!;
+            selectedCatalog = null;
+        }
+        else
+        {
+            var option = ResolveOption();
+            connectionString = _configuration!.GetConnectionString(option.ConnectionStringName)
+                ?? throw new InvalidOperationException(
+                    $"Connection string '{option.ConnectionStringName}' is required for '{option.Name}'.");
+            selectedCatalog = _requestContext is null
+                ? _selectorState.SelectedCatalog
+                : _requestContext.CurrentDatabase;
+        }
 
         return provider switch
         {

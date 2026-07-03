@@ -51,10 +51,13 @@ public class ModelTests
     }
 
     [Fact]
-    public void ColumnStats_TypeGuardFallback_UsesNegativeOneAndNulls()
+    public void ColumnStats_StoresCountAndValueExtrema()
     {
-        var stats = new ColumnStats("Id", 100, 90, -1, null, null, 5);
-        stats.DistinctValues.Should().Be(-1);
+        var stats = new ColumnStats("Id", 100, 90, 5, null, null);
+        stats.ColumnName.Should().Be("Id");
+        stats.RowCount.Should().Be(100);
+        stats.NonNullCount.Should().Be(90);
+        stats.DistinctCount.Should().Be(5);
         stats.MinValue.Should().BeNull();
         stats.MaxValue.Should().BeNull();
     }

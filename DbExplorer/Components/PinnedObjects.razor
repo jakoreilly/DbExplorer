@@ -24,10 +24,10 @@
                     <div class="pinned-item-row">
                         <button class="object-node recent-item" type="button" title="@item.SchemaName.@item.ObjectName (@item.ObjectType)"
                                 @onclick="() => Navigate(item)">
-                            <span class="recent-icon">@TypeIcon(item.ObjectType)</span>
-                            @item.SchemaName.<strong>@item.ObjectName</strong>
+                            <i class="obj-icon obj-icon--@item.ObjectType recent-icon" aria-hidden="true">@TypeIcon(item.ObjectType)</i>
+                            <span class="object-node-name">@item.SchemaName.<strong>@item.ObjectName</strong></span>
                         </button>
-                        <button class="pin-toggle" type="button" title="Unpin" @onclick="() => TogglePin(item)" @onclick:stopPropagation="true">✕</button>
+                        <button class="pin-toggle" type="button" title="Unpin" aria-label="Unpin @item.ObjectName" @onclick="() => TogglePin(item)" @onclick:stopPropagation="true">✕</button>
                     </div>
                 }
             }
