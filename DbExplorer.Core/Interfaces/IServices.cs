@@ -41,6 +41,12 @@ public interface IMetadataService
     Task<IReadOnlyList<ColumnInfo>> GetColumnsAsync(string schemaName, string objectName, CancellationToken ct = default);
     Task<IReadOnlyList<IndexInfo>> GetIndexesAsync(string schemaName, string tableName, CancellationToken ct = default);
     Task<IReadOnlyList<ForeignKeyInfo>> GetForeignKeysAsync(string schemaName, string tableName, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns every foreign key whose parent table lives in <paramref name="schemaName"/>,
+    /// in a single round-trip (used by the schema diagram).
+    /// </summary>
+    Task<IReadOnlyList<ForeignKeyInfo>> GetAllForeignKeysAsync(string schemaName, CancellationToken ct = default);
     Task<IReadOnlyList<TriggerInfo>> GetTriggersAsync(string schemaName, string tableName, CancellationToken ct = default);
     Task<ObjectDefinition?> GetObjectDefinitionAsync(string schemaName, string objectName, CancellationToken ct = default);
     Task<long> GetRowCountAsync(string schemaName, string tableName, CancellationToken ct = default);
@@ -50,6 +56,12 @@ public interface IMetadataService
     /// Both the term and identifiers stay parameterized/catalog-validated per the usual pattern.
     /// </summary>
     Task<SearchResult> SearchAsync(string term, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns every column of every table/view in the current catalog in a single
+    /// round-trip. Used to feed SQL editor autocomplete (table and column suggestions).
+    /// </summary>
+    Task<IReadOnlyList<ColumnSearchHit>> GetAllColumnsAsync(CancellationToken ct = default);
 }
 
 public interface IDataBrowsingService
@@ -113,4 +125,36 @@ public interface IQueryBuilderService
     /// Returns the SQL string and the ordered list of parameter bindings.
     /// </summary>
     (string Sql, IReadOnlyList<object?> Bindings) Compile(QueryGraph graph);
+}
+
+/// <summary>
+/// App-wide (singleton) rolling store of database actions and errors feeding
+/// the Systems Analyser dashboard. Implementations must be thread-safe:
+/// events arrive concurrently from every circuit and API request.
+/// </summary>
+public interface ISystemAnalyserStore
+{
+    /// <summary>Records one event. Never throws; safe to call fire-and-forget.</summary>
+    void Record(DbActionEvent evt);
+
+    /// <summary>Convenience for failure paths.</summary>
+    void RecordError(
+        string provider,
+        DbActionCategory category,
+        string operation,
+        Exception ex,
+        string? schemaName = null,
+        string? objectName = null,
+        long elapsedMs = -1,
+        string username = "anonymous",
+        string? sql = null);
+
+    /// <summary>Newest-first snapshot of events no older than <paramref name="window"/>.</summary>
+    IReadOnlyList<DbActionEvent> GetEvents(TimeSpan window);
+
+    /// <summary>Removes all stored events.</summary>
+    void Clear();
+
+    /// <summary>Raised after each Record; fires on the recording thread (see Blazor thread rule).</summary>
+    event Action? OnEvent;
 }

@@ -545,6 +545,148 @@ public sealed class MetadataService(
             (string)r.ReferencedColumn)).ToList();
     }
 
+    public Task<IReadOnlyList<ColumnSearchHit>> GetAllColumnsAsync(CancellationToken ct = default)
+        => GetOrQueryAsync("allcolumns", "", () => QueryAllColumnsAsync(ct));
+
+    private async Task<IReadOnlyList<ColumnSearchHit>> QueryAllColumnsAsync(CancellationToken ct)
+    {
+        await using var conn = factory.Create();
+        await conn.OpenAsync(ct);
+
+        var sql = factory.Provider switch
+        {
+            DatabaseProvider.SqlServer =>
+                """
+                SELECT c.TABLE_SCHEMA AS SchemaName,
+                       c.TABLE_NAME   AS TableName,
+                       c.COLUMN_NAME  AS ColumnName
+                FROM INFORMATION_SCHEMA.COLUMNS c
+                ORDER BY c.TABLE_SCHEMA, c.TABLE_NAME, c.ORDINAL_POSITION
+                """,
+            DatabaseProvider.PostgreSql =>
+                """
+                SELECT c.table_schema AS "SchemaName",
+                       c.table_name   AS "TableName",
+                       c.column_name  AS "ColumnName"
+                FROM information_schema.columns c
+                WHERE c.table_schema NOT IN ('pg_catalog', 'information_schema')
+                ORDER BY c.table_schema, c.table_name, c.ordinal_position
+                """,
+            DatabaseProvider.MySql =>
+                """
+                SELECT c.table_schema AS SchemaName,
+                       c.table_name   AS TableName,
+                       c.column_name  AS ColumnName
+                FROM information_schema.columns c
+                WHERE c.table_schema = DATABASE()
+                ORDER BY c.table_schema, c.table_name, c.ordinal_position
+                """,
+            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+        };
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var rows = await conn.QueryAsync(
+            new CommandDefinition(
+                sql,
+                commandTimeout: TimeoutSeconds,
+                cancellationToken: ct));
+
+        var result = rows.Select(r => new ColumnSearchHit(
+            (string)r.SchemaName,
+            (string)r.TableName,
+            (string)r.ColumnName)).ToList();
+
+        profiler.Record(factory.Provider.ToString(), "GetAllColumnsAsync (autocomplete metadata)", sw.ElapsedMilliseconds, result.Count);
+        return result;
+    }
+
+    public async Task<IReadOnlyList<ForeignKeyInfo>> GetAllForeignKeysAsync(
+        string schemaName, CancellationToken ct = default)
+    {
+        dialect.ThrowIfInvalidIdentifier(schemaName, nameof(schemaName));
+
+        await using var conn = factory.Create();
+        await conn.OpenAsync(ct);
+
+        var sql = factory.Provider switch
+        {
+            DatabaseProvider.SqlServer =>
+                """
+                SELECT
+                    fk.name          AS ConstraintName,
+                    ps.name          AS SchemaName,
+                    pt.name          AS TableName,
+                    pc.name          AS ColumnName,
+                    rs.name          AS ReferencedSchema,
+                    rt.name          AS ReferencedTable,
+                    rc.name          AS ReferencedColumn
+                FROM sys.foreign_keys fk
+                JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+                JOIN sys.tables  pt ON pt.object_id = fk.parent_object_id
+                JOIN sys.schemas ps ON ps.schema_id = pt.schema_id
+                JOIN sys.columns pc ON pc.object_id = fk.parent_object_id AND pc.column_id = fkc.parent_column_id
+                JOIN sys.tables  rt ON rt.object_id = fk.referenced_object_id
+                JOIN sys.schemas rs ON rs.schema_id = rt.schema_id
+                JOIN sys.columns rc ON rc.object_id = fk.referenced_object_id AND rc.column_id = fkc.referenced_column_id
+                WHERE ps.name = @schema
+                ORDER BY pt.name, fk.name
+                """,
+            DatabaseProvider.PostgreSql =>
+                """
+                SELECT
+                    tc.constraint_name AS "ConstraintName",
+                    kcu.table_schema AS "SchemaName",
+                    kcu.table_name AS "TableName",
+                    kcu.column_name AS "ColumnName",
+                    ccu.table_schema AS "ReferencedSchema",
+                    ccu.table_name AS "ReferencedTable",
+                    ccu.column_name AS "ReferencedColumn"
+                FROM information_schema.table_constraints tc
+                JOIN information_schema.key_column_usage kcu
+                    ON kcu.constraint_name = tc.constraint_name
+                   AND kcu.constraint_schema = tc.constraint_schema
+                JOIN information_schema.constraint_column_usage ccu
+                    ON ccu.constraint_name = tc.constraint_name
+                   AND ccu.constraint_schema = tc.constraint_schema
+                WHERE tc.constraint_type = 'FOREIGN KEY'
+                  AND kcu.table_schema = @schema
+                ORDER BY kcu.table_name, tc.constraint_name, kcu.ordinal_position
+                """,
+            DatabaseProvider.MySql =>
+                """
+                SELECT
+                    kcu.constraint_name AS ConstraintName,
+                    kcu.table_schema AS SchemaName,
+                    kcu.table_name AS TableName,
+                    kcu.column_name AS ColumnName,
+                    kcu.referenced_table_schema AS ReferencedSchema,
+                    kcu.referenced_table_name AS ReferencedTable,
+                    kcu.referenced_column_name AS ReferencedColumn
+                FROM information_schema.key_column_usage kcu
+                WHERE kcu.table_schema = @schema
+                    AND kcu.referenced_table_name IS NOT NULL
+                ORDER BY kcu.table_name, kcu.constraint_name, kcu.ordinal_position
+                """,
+            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+        };
+
+        var rows = await conn.QueryAsync(
+            new CommandDefinition(
+                sql,
+                new { schema = schemaName },
+                commandTimeout: TimeoutSeconds,
+                cancellationToken: ct));
+
+        return rows.Select(r => new ForeignKeyInfo(
+            (string)r.ConstraintName,
+            (string)r.SchemaName,
+            (string)r.TableName,
+            (string)r.ColumnName,
+            (string)r.ReferencedSchema,
+            (string)r.ReferencedTable,
+            (string)r.ReferencedColumn)).ToList();
+    }
+
     public async Task<ObjectDefinition?> GetObjectDefinitionAsync(
         string schemaName, string objectName, CancellationToken ct = default)
     {

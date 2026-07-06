@@ -1,0 +1,332 @@
+@page "/analyser"
+@using System.Globalization
+@using DbExplorer.Core.Interfaces
+@using DbExplorer.Core.Models
+@using DbExplorer.Options
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.Extensions.Options
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@inject ISystemAnalyserStore Analyser
+@inject IOptions<AnalyserOptions> AnalyserOpts
+@attribute [Authorize]
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Systems Analyser — DbExplorer</PageTitle>
+
+@if (!AnalyserOpts.Value.Enabled)
+{
+    <div class="profiler-error">The Systems Analyser is disabled. Set <code>Analyser:Enabled = true</code> in appsettings.json.</div>
+    return;
+}
+
+<div class="profiler-page">
+    <div class="profiler-page-header">
+        <h2>Systems Analyser</h2>
+        <span class="profiler-connection-badge">@_events.Count event(s) in window</span>
+    </div>
+
+    <div class="profiler-readonly-notice">
+        Live view of database actions and errors recorded by this application across all
+        users and configured servers. In-memory rolling buffer — restarts clear it.
+    </div>
+
+    <div class="diagram-filters">
+        <label class="diagram-label">Window</label>
+        <select class="qb-select" @bind="_windowMinutes" @bind:after="Refresh">
+            <option value="15">Last 15 minutes</option>
+            <option value="60">Last hour</option>
+            <option value="1440">Last 24 hours</option>
+        </select>
+        <button class="profiler-btn" @onclick="Refresh">Refresh</button>
+        <label class="diagram-label" style="margin-left:0.75rem">
+            <input type="checkbox" @bind="_live" @bind:after="Refresh" /> live
+        </label>
+    </div>
+
+    @* ── Summary tiles ── *@
+    <div class="analyser-tiles">
+        <div class="analyser-tile">
+            <span class="analyser-tile-value">@_events.Count</span>
+            <span class="analyser-tile-label">Events</span>
+        </div>
+        <div class="analyser-tile @(_errorCount > 0 ? "analyser-tile--error" : "")">
+            <span class="analyser-tile-value">@_errorCount</span>
+            <span class="analyser-tile-label">Errors</span>
+        </div>
+        <div class="analyser-tile">
+            <span class="analyser-tile-value">@_p95Ms<span class="analyser-tile-unit">ms</span></span>
+            <span class="analyser-tile-label">p95 latency</span>
+        </div>
+        <div class="analyser-tile @(_errorRate > 0 ? "analyser-tile--error" : "")">
+            <span class="analyser-tile-value">@_errorRate.ToString("P1", CultureInfo.InvariantCulture)</span>
+            <span class="analyser-tile-label">Error rate</span>
+        </div>
+    </div>
+
+    @* ── Timeline (SVG) ── *@
+    <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+        <div class="profiler-panel-header" style="cursor:default">
+            <span>Events per minute</span>
+            <span class="profiler-panel-meta">grey = actions, red = errors</span>
+        </div>
+        <div class="profiler-panel-body" style="overflow-x:auto">
+            @if (_buckets.Count == 0)
+            {
+                <p class="profiler-empty">No events recorded in this window yet. Browse a table or run a query, then refresh.</p>
+            }
+            else
+            {
+                <svg width="@(_buckets.Count * BarSlot + 40)" height="140" role="img" aria-label="Events per minute">
+                    @{
+                        var max = Math.Max(1, _buckets.Max(b => b.Total));
+                    }
+                    @for (var i = 0; i < _buckets.Count; i++)
+                    {
+                        var b = _buckets[i];
+                        var x = (i * BarSlot + 20).ToString(CultureInfo.InvariantCulture);
+                        var okH = (100.0 * (b.Total - b.Errors) / max);
+                        var errH = (100.0 * b.Errors / max);
+                        var okY = (120 - okH - errH).ToString("0.##", CultureInfo.InvariantCulture);
+                        var errY = (120 - errH).ToString("0.##", CultureInfo.InvariantCulture);
+                        <rect class="analyser-bar-ok" x="@x" y="@okY" width="@BarWidth" height="@okH.ToString("0.##", CultureInfo.InvariantCulture)">
+                            <title>@b.Label — @(b.Total - b.Errors) ok</title>
+                        </rect>
+                        <rect class="analyser-bar-err" x="@x" y="@errY" width="@BarWidth" height="@errH.ToString("0.##", CultureInfo.InvariantCulture)">
+                            <title>@b.Label — @b.Errors error(s)</title>
+                        </rect>
+                        @if (i % LabelEvery == 0)
+                        {
+                            <g>
+                                <text class="analyser-axis-label" x="@x" y="135" font-size="9">@b.Label</text>
+                            </g>
+                        }
+                    }
+                </svg>
+            }
+        </div>
+    </div>
+
+    @* ── Per-category latency ── *@
+    <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+        <div class="profiler-panel-header" style="cursor:default"><span>Latency by category</span></div>
+        <div class="profiler-panel-body" style="overflow-x:auto">
+            <table class="data-table">
+                <thead><tr><th>Category</th><th>Events</th><th>Errors</th><th>p50 ms</th><th>p95 ms</th><th>Max ms</th></tr></thead>
+                <tbody>
+                    @foreach (var g in _byCategory)
+                    {
+                        <tr>
+                            <td>@g.Category</td><td>@g.Count</td>
+                            <td class="@(g.Errors > 0 ? "analyser-err-text" : "")">@g.Errors</td>
+                            <td>@g.P50</td><td>@g.P95</td><td>@g.Max</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @* ── Slowest 10 ── *@
+    <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+        <div class="profiler-panel-header" style="cursor:default"><span>Slowest 10 operations</span><span class="profiler-panel-meta">click a row for detail</span></div>
+        <div class="profiler-panel-body" style="overflow-x:auto">
+            <table class="data-table analyser-table">
+                <thead><tr><th></th><th>When (UTC)</th><th>Category</th><th>Operation</th><th>Object</th><th>ms</th><th>Rows</th></tr></thead>
+                <tbody>
+                    @foreach (var e in _slowest)
+                    {
+                        var key = RowKey(e);
+                        var open = _expanded.Contains(key);
+                        <tr class="analyser-row" @onclick="() => ToggleRow(key)">
+                            <td class="analyser-caret">@(open ? "▾" : "▸")</td>
+                            <td>@e.Timestamp.ToString("HH:mm:ss")</td><td>@e.Category</td>
+                            <td class="analyser-op-cell" title="@e.Operation">@e.Operation</td>
+                            <td>@(e.SchemaName is null ? "-" : $"{e.SchemaName}.{e.ObjectName}")</td>
+                            <td>@e.ElapsedMs</td><td>@(e.RowCount < 0 ? "-" : e.RowCount.ToString())</td>
+                        </tr>
+                        @if (open)
+                        {
+                            <tr class="analyser-detail-row">
+                                <td colspan="7">@RenderDetail(e)</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @* ── Errors ── *@
+    <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+        <div class="profiler-panel-header" style="cursor:default">
+            <span>Errors</span>
+            <span class="profiler-panel-meta">@_errorCount error(s) in window · click a row for detail</span>
+        </div>
+        <div class="profiler-panel-body" style="overflow-x:auto">
+            @if (_errors.Count == 0)
+            {
+                <p class="profiler-empty">No errors recorded in this window. 🎉</p>
+            }
+            else
+            {
+                <table class="data-table analyser-table">
+                    <thead><tr><th></th><th>When (UTC)</th><th>Category</th><th>Type</th><th>Operation</th><th>User</th><th>Message</th></tr></thead>
+                    <tbody>
+                        @foreach (var e in _errors)
+                        {
+                            var key = RowKey(e);
+                            var open = _expanded.Contains(key);
+                            <tr class="analyser-row" @onclick="() => ToggleRow(key)">
+                                <td class="analyser-caret">@(open ? "▾" : "▸")</td>
+                                <td>@e.Timestamp.ToString("HH:mm:ss")</td><td>@e.Category</td>
+                                <td>@e.ErrorType</td><td class="analyser-op-cell" title="@e.Operation">@e.Operation</td><td>@e.Username</td>
+                                <td class="analyser-msg-cell" title="@e.ErrorMessage">@e.ErrorMessage</td>
+                            </tr>
+                            @if (open)
+                            {
+                                <tr class="analyser-detail-row">
+                                    <td colspan="7">@RenderDetail(e)</td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </div>
+</div>
+
+@{
+    RenderFragment RenderDetail(DbActionEvent e) =>
+        @<div class="analyser-detail">
+            <div class="analyser-detail-meta">
+                <span><strong>When:</strong> @e.Timestamp.ToString("yyyy-MM-dd HH:mm:ss") UTC</span>
+                <span><strong>Category:</strong> @e.Category</span>
+                <span><strong>Provider:</strong> @e.Provider</span>
+                @if (e.SchemaName is not null)
+                {
+                    <span><strong>Object:</strong> @e.SchemaName.@e.ObjectName</span>
+                }
+                <span><strong>User:</strong> @e.Username</span>
+                @if (e.ElapsedMs >= 0)
+                {
+                    <span><strong>Elapsed:</strong> @e.ElapsedMs ms</span>
+                }
+                @if (e.RowCount >= 0)
+                {
+                    <span><strong>Rows:</strong> @e.RowCount</span>
+                }
+            </div>
+            <div class="analyser-detail-label">Operation</div>
+            <pre class="analyser-detail-pre">@e.Operation</pre>
+            @if (!string.IsNullOrWhiteSpace(e.Sql))
+            {
+                <div class="analyser-detail-label">SQL</div>
+                <pre class="analyser-detail-pre">@e.Sql</pre>
+            }
+            @if (!e.Success)
+            {
+                <div class="analyser-detail-label analyser-err-text">Error @(string.IsNullOrEmpty(e.ErrorType) ? "" : $"({e.ErrorType})")</div>
+                <pre class="analyser-detail-pre analyser-detail-pre--error">@e.ErrorMessage</pre>
+            }
+        </div>;
+}
+
+@code {
+    private const int BarSlot = 14;
+    private const int BarWidth = 10;
+
+    private int _windowMinutes = 60;
+    private bool _live = true;
+
+    private IReadOnlyList<DbActionEvent> _events = [];
+    private List<DbActionEvent> _errors = [];
+    private List<DbActionEvent> _slowest = [];
+    private List<(DbActionCategory Category, int Count, int Errors, long P50, long P95, long Max)> _byCategory = [];
+    private List<(string Label, int Total, int Errors)> _buckets = [];
+    private int _errorCount;
+    private long _p95Ms;
+    private double _errorRate;
+    private int LabelEvery => _windowMinutes switch { 15 => 3, 60 => 10, _ => 120 };
+
+    // Expanded detail rows, keyed stably so expansion survives live refreshes.
+    private readonly HashSet<string> _expanded = new();
+    private static string RowKey(DbActionEvent e) => $"{e.Timestamp.Ticks}|{e.Operation}|{e.ErrorMessage}";
+    private void ToggleRow(string key)
+    {
+        if (!_expanded.Remove(key)) _expanded.Add(key);
+    }
+
+    protected override void OnInitialized()
+    {
+        Analyser.OnEvent += HandleEvent;
+        Recompute();
+    }
+
+    public void Dispose() => Analyser.OnEvent -= HandleEvent;
+
+    private void HandleEvent()
+    {
+        if (!_live) return;
+        _ = InvokeAsync(() => { Recompute(); StateHasChanged(); });
+    }
+
+    private void Refresh()
+    {
+        Recompute();
+    }
+
+    private void Recompute()
+    {
+        var window = TimeSpan.FromMinutes(_windowMinutes);
+        _events = Analyser.GetEvents(window);
+        _errors = _events.Where(e => !e.Success).ToList();
+        _errorCount = _errors.Count;
+        _errorRate = _events.Count == 0 ? 0 : (double)_errorCount / _events.Count;
+
+        var timed = _events.Where(e => e.ElapsedMs >= 0).Select(e => e.ElapsedMs).OrderBy(v => v).ToList();
+        _p95Ms = Percentile(timed, 0.95);
+
+        _slowest = _events.Where(e => e.ElapsedMs >= 0).OrderByDescending(e => e.ElapsedMs).Take(10).ToList();
+
+        _byCategory = _events
+            .GroupBy(e => e.Category)
+            .Select(g =>
+            {
+                var t = g.Where(e => e.ElapsedMs >= 0).Select(e => e.ElapsedMs).OrderBy(v => v).ToList();
+                return (g.Key, g.Count(), g.Count(e => !e.Success),
+                        Percentile(t, 0.50), Percentile(t, 0.95), t.Count == 0 ? 0 : t[^1]);
+            })
+            .OrderByDescending(x => x.Item2)
+            .ToList();
+
+        // Per-minute buckets over the whole window (oldest → newest, fixed count so the
+        // x-axis is stable even when minutes have zero events). Cap 24h at 5-min buckets.
+        var bucketMinutes = _windowMinutes <= 60 ? 1 : 5;
+        var bucketCount = _windowMinutes / bucketMinutes;
+        var now = DateTimeOffset.UtcNow;
+        var start = now - TimeSpan.FromMinutes(_windowMinutes);
+        var buckets = new (string Label, int Total, int Errors)[bucketCount];
+        for (var i = 0; i < bucketCount; i++)
+        {
+            var t = start + TimeSpan.FromMinutes((double)i * bucketMinutes);
+            buckets[i] = (t.ToString("HH:mm"), 0, 0);
+        }
+        foreach (var e in _events)
+        {
+            var idx = (int)((e.Timestamp - start).TotalMinutes / bucketMinutes);
+            if (idx < 0 || idx >= bucketCount) continue;
+            buckets[idx].Total++;
+            if (!e.Success) buckets[idx].Errors++;
+        }
+        _buckets = buckets.ToList();
+    }
+
+    private static long Percentile(List<long> sortedAscending, double p)
+    {
+        if (sortedAscending.Count == 0) return 0;
+        var idx = (int)Math.Ceiling(p * sortedAscending.Count) - 1;
+        return sortedAscending[Math.Clamp(idx, 0, sortedAscending.Count - 1)];
+    }
+}

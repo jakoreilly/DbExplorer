@@ -9,6 +9,7 @@
 @inject ILogger<ExplorerPage> Logger
 @inject IJSRuntime JS
 @inject DatabaseSelectorState SelectorState
+@inject ISystemAnalyserStore Analyser
 @inject DbExplorer.Services.RecentlyViewedState RecentlyViewedState
 @inject DbExplorer.Services.PinnedState PinnedState
 @rendermode InteractiveServer
@@ -138,6 +139,7 @@
         {
             Logger.LogError(ex, "Error loading metadata for {Schema}.{Object}", SchemaName, ObjectName);
             error = "Failed to load object metadata. Please try again.";
+            Analyser.RecordError(SelectorState.Current.Provider.ToString(), DbActionCategory.Metadata, "LoadObjectMetadata", ex, SchemaName, ObjectName);
         }
         finally
         {

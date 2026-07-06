@@ -109,6 +109,10 @@ builder.Services.AddOptions<QueryBuilderOptions>()
     .Bind(builder.Configuration.GetSection("QueryBuilder"))
     .ValidateDataAnnotations()
     .ValidateOnStart();
+builder.Services.AddOptions<AnalyserOptions>()
+    .Bind(builder.Configuration.GetSection("Analyser"))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
 builder.Services.AddOptions<McpOptions>()
     .Bind(builder.Configuration.GetSection("Mcp"));
 builder.Services.AddOptions<MetadataOptions>()
@@ -152,6 +156,9 @@ builder.Services.AddScoped<IPersistentQueryHistoryService, PersistentQueryHistor
 // Audit logging
 builder.Services.AddOptions<AuditOptions>().Bind(builder.Configuration.GetSection("Audit"));
 builder.Services.AddSingleton<IAuditLogger, AuditLoggerService>();
+
+// Systems Analyser — app-wide action/error telemetry store
+builder.Services.AddSingleton<ISystemAnalyserStore, SystemAnalyserStore>();
 
 // IHttpContextAccessor is used by DbExplorerMcpTools and request-scoped server selection.
 builder.Services.AddHttpContextAccessor();

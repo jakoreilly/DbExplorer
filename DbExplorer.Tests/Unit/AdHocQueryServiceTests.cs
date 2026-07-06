@@ -19,7 +19,9 @@ public class AdHocQueryServiceTests
     {
         var factory = Mock.Of<IDbConnectionFactory>(f => f.Provider == provider);
         var options = Microsoft.Extensions.Options.Options.Create(new ProfilerOptions());
-        return new AdHocQueryService(factory, options, NullLogger<AdHocQueryService>.Instance);
+        var analyserOptions = Microsoft.Extensions.Options.Options.Create(new AnalyserOptions());
+        var analyser = new SystemAnalyserStore(analyserOptions, NullLogger<SystemAnalyserStore>.Instance);
+        return new AdHocQueryService(factory, options, NullLogger<AdHocQueryService>.Instance, analyser);
     }
 
     // ── Allowed statements ────────────────────────────────────────────────────

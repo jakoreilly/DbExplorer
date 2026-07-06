@@ -18,7 +18,8 @@ namespace DbExplorer.Services;
 public sealed class AdHocQueryService(
     IDbConnectionFactory factory,
     IOptions<ProfilerOptions> profilerOptions,
-    ILogger<AdHocQueryService> logger) : IAdHocQueryService
+    ILogger<AdHocQueryService> logger,
+    ISystemAnalyserStore analyser) : IAdHocQueryService
 {
     private int TimeoutSeconds => profilerOptions.Value.QueryTimeoutSeconds;
 
@@ -284,6 +285,7 @@ public sealed class AdHocQueryService(
                 _ => ex.Message
             };
             logger.LogWarning(ex, "GetRecentQueriesAsync unavailable for {Provider}", factory.Provider);
+            analyser.RecordError(factory.Provider.ToString(), DbActionCategory.AdHocQuery, "GetRecentQueries", ex);
             return new QueryResult([], [], 0, hint);
         }
     }

@@ -5,10 +5,12 @@
 @using Microsoft.Extensions.Options
 @using static Microsoft.AspNetCore.Components.Web.RenderMode
 @inject IAdHocQueryService AdHocService
+@inject IMetadataService Metadata
 @inject IQueryProfiler Profiler
 @inject DatabaseSelectorState SelectorState
 @inject IOptions<ProfilerOptions> ProfilerOpts
 @inject IAuditLogger Audit
+@inject ISystemAnalyserStore Analyser
 @inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 @inject ThemeState ThemeState
@@ -422,6 +424,17 @@
     protected override void OnInitialized()
     {
         queryLog = Profiler.GetHistory();
+        SelectorState.OnChange += HandleDatabaseChanged;
+    }
+
+    private void HandleDatabaseChanged()
+    {
+        // Refresh autocomplete metadata for the newly selected connection/catalog.
+        _ = InvokeAsync(async () =>
+        {
+            if (_cmInitialized)
+                await LoadEditorHintsAsync();
+        });
     }
 
     protected override async Task OnInitializedAsync()
@@ -441,6 +454,7 @@
                 _dotNetRef ??= DotNetObjectReference.Create(this);
                 await JS.InvokeVoidAsync("initSqlEditor", _cmHost, ThemeState.IsDarkMode, _dotNetRef, queryText);
                 _cmInitialized = true;
+                await LoadEditorHintsAsync();
             }
             catch { /* pre-render or JS unavailable */ }
         }
@@ -462,6 +476,33 @@
             try { await JS.InvokeVoidAsync("hljsHighlightNew", _profilerBody); }
             catch { }
         }
+    }
+
+    /// <summary>
+    /// Feeds table/column names to the CodeMirror sql-hint addon so the editor can
+    /// suggest identifiers while typing. Tables are keyed both bare ("Orders") and
+    /// schema-qualified ("dbo.Orders") so either style completes.
+    /// </summary>
+    private async Task LoadEditorHintsAsync()
+    {
+        try
+        {
+            var columns = await Metadata.GetAllColumnsAsync();
+            var tables = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var col in columns)
+            {
+                if (!tables.TryGetValue(col.TableName, out var bare))
+                    tables[col.TableName] = bare = new List<string>();
+                bare.Add(col.ColumnName);
+
+                var qualified = $"{col.SchemaName}.{col.TableName}";
+                if (!tables.TryGetValue(qualified, out var full))
+                    tables[qualified] = full = new List<string>();
+                full.Add(col.ColumnName);
+            }
+            await JS.InvokeVoidAsync("setSqlEditorHints", _cmHost, tables);
+        }
+        catch { /* metadata unavailable (no connection) — editor still works without hints */ }
     }
 
     // ── Panel 1 actions ───────────────────────────────────────────────────────
@@ -498,15 +539,18 @@
         {
             // Validation errors (read-only guard, multi-statement) — safe to show directly.
             queryError = ex.Message;
+            Analyser.RecordError(SelectorState.Current.Provider.ToString(), DbActionCategory.AdHocQuery, "RunQuery", ex, elapsedMs: -1, username: _username, sql: queryText?.Trim());
         }
         catch (Exception ex) when (ex is System.Data.Common.DbException or TimeoutException)
         {
             // Database / SQL errors — show the message, it's from the DB engine.
             queryError = ex.Message;
+            Analyser.RecordError(SelectorState.Current.Provider.ToString(), DbActionCategory.AdHocQuery, "RunQuery", ex, elapsedMs: -1, username: _username, sql: queryText?.Trim());
         }
-        catch
+        catch (Exception ex)
         {
             queryError = "Query failed due to an unexpected error. Check the server log.";
+            Analyser.RecordError(SelectorState.Current.Provider.ToString(), DbActionCategory.AdHocQuery, "RunQuery", ex, elapsedMs: -1, username: _username, sql: queryText?.Trim());
         }
         finally
         {
@@ -536,14 +580,17 @@
         catch (InvalidOperationException ex)
         {
             queryError = ex.Message;
+            Analyser.RecordError(SelectorState.Current.Provider.ToString(), DbActionCategory.AdHocQuery, "ExplainQuery", ex, elapsedMs: -1, username: _username, sql: queryText?.Trim());
         }
         catch (Exception ex) when (ex is System.Data.Common.DbException or TimeoutException)
         {
             queryError = ex.Message;
+            Analyser.RecordError(SelectorState.Current.Provider.ToString(), DbActionCategory.AdHocQuery, "ExplainQuery", ex, elapsedMs: -1, username: _username, sql: queryText?.Trim());
         }
-        catch
+        catch (Exception ex)
         {
             queryError = "Explain failed due to an unexpected error. Check the server log.";
+            Analyser.RecordError(SelectorState.Current.Provider.ToString(), DbActionCategory.AdHocQuery, "ExplainQuery", ex, elapsedMs: -1, username: _username, sql: queryText?.Trim());
         }
         finally
         {
@@ -758,6 +805,7 @@
 
     public void Dispose()
     {
+        SelectorState.OnChange -= HandleDatabaseChanged;
         _refreshCts?.Cancel();
         _refreshCts?.Dispose();
         try { _ = JS.InvokeVoidAsync("dbExplorerUnbindProfilerF5", _profilerBody); } catch { }

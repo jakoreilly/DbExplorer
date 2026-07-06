@@ -24,6 +24,7 @@ public sealed class AuditLoggerService : IAuditLogger
     private readonly bool _enabled;
     private readonly bool _logSql;
     private readonly ILogger<AuditLoggerService> _logger;
+    private readonly ISystemAnalyserStore _analyser;
 
     // Pre-defined EventId values so log routing tools can filter by ID.
     private static readonly EventId MetadataAccessEvent = new(1001, "MetadataAccess");
@@ -36,11 +37,13 @@ public sealed class AuditLoggerService : IAuditLogger
 
     public AuditLoggerService(
         IOptions<AuditOptions> options,
-        ILogger<AuditLoggerService> logger)
+        ILogger<AuditLoggerService> logger,
+        ISystemAnalyserStore analyser)
     {
         _enabled = options.Value.Enabled;
         _logSql  = options.Value.LogSql;
         _logger  = logger;
+        _analyser = analyser;
     }
 
     /// <inheritdoc/>
@@ -79,6 +82,31 @@ public sealed class AuditLoggerService : IAuditLogger
                 evt.ElapsedMs,
                 evt.Context,
                 sql);
+
+            _analyser.Record(new DbActionEvent(
+                evt.Timestamp,
+                Provider: evt.Context is not null && evt.Context.TryGetValue("provider", out var p) && p is not null ? p : "-",
+                Category: evt.Action switch
+                {
+                    AuditAction.MetadataAccess => DbActionCategory.Metadata,
+                    AuditAction.DataAccess     => DbActionCategory.DataBrowse,
+                    AuditAction.AdHocQuery     => DbActionCategory.AdHocQuery,
+                    AuditAction.McpToolCall    => DbActionCategory.Mcp,
+                    AuditAction.Login          => DbActionCategory.Auth,
+                    AuditAction.LoginFailed    => DbActionCategory.Auth,
+                    AuditAction.Logout         => DbActionCategory.Auth,
+                    _                          => DbActionCategory.Other,
+                },
+                Operation: evt.Action.ToString(),
+                SchemaName: evt.SchemaName,
+                ObjectName: evt.ObjectName,
+                ElapsedMs: evt.ElapsedMs,
+                RowCount: evt.RowCount,
+                Success: evt.Action != AuditAction.LoginFailed,
+                ErrorType: evt.Action == AuditAction.LoginFailed ? "LoginFailed" : null,
+                ErrorMessage: null,
+                Username: evt.Username,
+                Sql: evt.Sql is null ? null : sql));
         }
         catch (Exception ex)
         {

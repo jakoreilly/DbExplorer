@@ -910,20 +910,39 @@ tr:hover td { background: var(--row-hover); }
 
 /* ── Sidebar nav ──────────────────────────────────────────────────────────── */
 
-.sidebar-nav { display: flex; flex-direction: row; gap: 0.2rem; border-bottom: 1px solid var(--border); padding: 0.45rem 0.75rem; }
+.sidebar-nav {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(58px, 1fr));
+    gap: 0.3rem;
+    border-bottom: 1px solid var(--border);
+    padding: 0.55rem 0.65rem;
+}
 .sidebar-nav-link {
-    display: inline-flex;
+    display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 0.35rem;
-    padding: 0.32rem 0.7rem;
-    font-size: 0.82rem;
+    justify-content: center;
+    gap: 0.28rem;
+    padding: 0.45rem 0.2rem 0.4rem;
+    min-width: 0;
+    font-size: 0.68rem;
     font-weight: 500;
+    letter-spacing: 0.01em;
     color: var(--muted);
     text-decoration: none;
-    border-radius: var(--radius-pill);
-    transition: background var(--speed) ease, color var(--speed) ease;
+    border-radius: var(--radius-md);
+    transition: background var(--speed) ease, color var(--speed) ease, transform var(--speed) ease;
+}
+.sidebar-nav-icon { width: 19px; height: 19px; flex-shrink: 0; transition: transform var(--speed) ease; }
+.sidebar-nav-label {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1;
 }
 .sidebar-nav-link:hover { background: var(--hover-bg); color: var(--primary); }
+.sidebar-nav-link:hover .sidebar-nav-icon { transform: translateY(-1px); }
 .sidebar-nav-link.active { color: var(--primary); background: var(--primary-soft); font-weight: 600; }
 
 /* ── Profiler Page ────────────────────────────────────────────────────────── */
@@ -1267,6 +1286,37 @@ tr:hover td { background: var(--row-hover); }
 .qb-sidebar-table:active { cursor: grabbing; transform: scale(0.98); }
 .qb-canvas-area { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); height: 500px; position: relative; overflow: hidden; box-shadow: var(--shadow-xs); }
 
+/* ── Schema Diagram page ───────────────────────────────────────────────────── */
+
+.diagram-filters { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }
+.diagram-label { font-size: 0.82rem; font-weight: 600; color: var(--muted); }
+.diagram-hint { font-size: 0.78rem; color: var(--faint); font-style: italic; }
+
+/* The Z.Blazor.Diagrams canvas has no intrinsic size — without an explicitly sized
+   parent it collapses to zero height and no nodes are visible. */
+.diagram-canvas-area {
+    height: 640px;
+    max-height: 72vh;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xs);
+    background:
+        radial-gradient(circle, var(--border) 1px, transparent 1.2px) 0 0 / 24px 24px,
+        var(--surface);
+}
+.diagram-canvas-area > * { width: 100%; height: 100%; }
+.diagram-canvas-area .diagram-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.diagram-fk-grid { display: flex; flex-direction: column; gap: 0.3rem; }
+.diagram-fk-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.82rem; padding: 0.3rem 0.15rem; border-bottom: 1px solid var(--border); }
+.diagram-fk-row:last-child { border-bottom: none; }
+.diagram-fk-label { font-family: var(--font-mono); color: var(--muted); }
+.diagram-fk-label strong { color: var(--text); }
+.diagram-fk-arrow { color: var(--primary); font-weight: 700; }
+.diagram-fk-constraint { font-size: 0.72rem; color: var(--faint); background: var(--surface-elevated); padding: 0.1rem 0.45rem; border-radius: var(--radius-pill); margin-left: auto; }
+
 /* ── Table diagram node ────────────────────────────────────────────────────── */
 
 .tnode {
@@ -1354,3 +1404,166 @@ html.theme-dark .diagram-link path.selection-helper,
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ── Systems Analyser ─────────────────────────────────────────────────────── */
+
+.analyser-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+.analyser-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.85rem 1.1rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    animation: de-fade-in 0.2s ease-out;
+}
+.analyser-tile-value {
+    font-size: 1.55rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+}
+.analyser-tile-unit {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--muted);
+    margin-left: 0.2rem;
+}
+.analyser-tile-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+}
+.analyser-tile--error { border-color: var(--error-text); }
+.analyser-tile--error .analyser-tile-value { color: var(--error-text); }
+
+.analyser-bar-ok { fill: #94a3b8; }
+.analyser-bar-err { fill: var(--error-text); }
+.analyser-axis-label { fill: var(--muted); }
+.analyser-err-text { color: var(--error-text); font-weight: 600; }
+.analyser-op-cell {
+    max-width: 420px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+}
+.analyser-msg-cell {
+    max-width: 480px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── SQL editor autocomplete (CodeMirror show-hint) ───────────────────────── */
+/* The popup is appended to <body>, outside the themed layout, so target the
+   html-level theme class set by dbExplorerSetTheme. */
+
+.CodeMirror-hints {
+    z-index: 300;
+    font-family: var(--font-mono, monospace);
+    font-size: 0.82rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+    padding: 3px;
+    background: #ffffff;
+}
+.CodeMirror-hint { padding: 3px 10px; border-radius: 5px; color: #334155; }
+li.CodeMirror-hint-active { background: #2563eb; color: #ffffff; }
+
+html.theme-dark .CodeMirror-hints {
+    background: #1a2030;
+    border-color: #2e3a52;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+html.theme-dark .CodeMirror-hint { color: #cbd5e1; }
+html.theme-dark li.CodeMirror-hint-active { background: #3b82f6; color: #ffffff; }
+
+/* ── Analyser expandable rows ─────────────────────────────────────────────── */
+
+.analyser-table .analyser-row { cursor: pointer; }
+.analyser-table .analyser-row:hover td { background: var(--row-hover); }
+.analyser-caret { color: var(--muted); width: 1.4rem; text-align: center; user-select: none; }
+.analyser-detail-row td { background: var(--surface-elevated); padding: 0 !important; }
+.analyser-detail { padding: 0.85rem 1.1rem; animation: de-fade-in var(--speed) ease-out; }
+.analyser-detail-meta { display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.65rem; }
+.analyser-detail-meta strong { color: var(--text); font-weight: 600; }
+.analyser-detail-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0.5rem 0 0.25rem; }
+.analyser-detail-pre {
+    margin: 0;
+    padding: 0.6rem 0.8rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-x: auto;
+}
+.analyser-detail-pre--error { color: var(--error-text); border-color: var(--error-text); background: var(--error-bg); }
+
+/* ── Home dashboard ───────────────────────────────────────────────────────── */
+
+.home-dash-loading { display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem; color: var(--muted); font-size: 0.9rem; }
+.home-panel {
+    margin-top: 1rem;
+    padding: 1rem 1.15rem 1.15rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xs);
+}
+.home-panel-title { font-size: 0.9rem; font-weight: 650; letter-spacing: -0.01em; margin-bottom: 0.85rem; }
+.home-panel-sub { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--faint); margin-left: 0.4rem; }
+.home-bars { display: flex; flex-direction: column; gap: 0.5rem; }
+.home-bar-row { display: grid; grid-template-columns: minmax(90px, 190px) 1fr auto; align-items: center; gap: 0.7rem; }
+.home-bar-name { font-size: 0.82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
+.home-bar-track { height: 12px; background: var(--surface-elevated); border-radius: var(--radius-pill); overflow: hidden; }
+.home-bar-fill { display: block; height: 100%; border-radius: var(--radius-pill); background: linear-gradient(90deg, #2563eb, #7c3aed); transition: width var(--speed) ease; }
+.home-bar-fill--alt { background: linear-gradient(90deg, #0891b2, #2563eb); }
+.home-bar-value { font-size: 0.82rem; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; min-width: 2.5ch; text-align: right; }
+
+/* ── Schema Diagram — table palette & links ───────────────────────────────── */
+
+.diagram-palette { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.85rem; }
+.diagram-palette-filter { max-width: 220px; }
+.diagram-chip-list { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.6rem; max-height: 140px; overflow-y: auto; padding: 0.15rem; }
+.diagram-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.28rem 0.6rem;
+    font-size: 0.78rem;
+    font-family: var(--font-mono);
+    color: var(--muted);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+    transition: background var(--speed) ease, color var(--speed) ease, border-color var(--speed) ease;
+}
+.diagram-chip:hover { border-color: var(--primary); color: var(--primary); }
+.diagram-chip-mark { font-weight: 700; opacity: 0.7; }
+.diagram-chip--placed { background: var(--primary-soft); color: var(--primary); border-color: var(--primary); font-weight: 600; }
+.diagram-chip--placed .diagram-chip-mark { opacity: 1; }
+
+.diagram-fk-row--clickable { cursor: pointer; border-radius: var(--radius-sm); transition: background var(--speed) ease; }
+.diagram-fk-row--clickable:hover { background: var(--row-hover); }
+.diagram-fk-row--active { background: var(--primary-soft); }
+
+/* FK edges drawn on the canvas */
+.diagram-canvas-area .diagram-link path { stroke: var(--primary); stroke-width: 2px; }
+.diagram-canvas-area .diagram-link .diagram-link-marker { fill: var(--primary); stroke: var(--primary); }

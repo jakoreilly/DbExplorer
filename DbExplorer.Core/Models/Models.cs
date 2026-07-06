@@ -224,3 +224,44 @@ public record ProfiledQuery(
     long ElapsedMs,
     int RowCount
 );
+
+// ── Systems Analyser models ──────────────────────────────────────────────────
+
+/// <summary>Category of a recorded database action for the Systems Analyser.</summary>
+public enum DbActionCategory
+{
+    /// <summary>Schema/metadata reads (schemas, objects, columns, FKs, search).</summary>
+    Metadata,
+    /// <summary>Paged data browsing, exports and column stats.</summary>
+    DataBrowse,
+    /// <summary>Ad-hoc SELECT queries from the Profiler page.</summary>
+    AdHocQuery,
+    /// <summary>Queries executed from the visual Query Builder.</summary>
+    QueryBuilder,
+    /// <summary>MCP tool calls.</summary>
+    Mcp,
+    /// <summary>Login/logout/login-failed events.</summary>
+    Auth,
+    /// <summary>Anything not classifiable above.</summary>
+    Other,
+}
+
+/// <summary>
+/// One database action (or failure) recorded by the Systems Analyser.
+/// Never contains row data — only access metadata, SQL text (possibly redacted)
+/// and engine error messages.
+/// </summary>
+public sealed record DbActionEvent(
+    DateTimeOffset Timestamp,
+    string Provider,
+    DbActionCategory Category,
+    string Operation,
+    string? SchemaName,
+    string? ObjectName,
+    long ElapsedMs,
+    int RowCount,
+    bool Success,
+    string? ErrorType,
+    string? ErrorMessage,
+    string Username,
+    string? Sql = null);

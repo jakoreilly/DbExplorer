@@ -14,6 +14,7 @@
 @inject DiagramInteropService DiagramInterop
 @inject IOptions<QueryBuilderOptions> QBOpts
 @inject IAuditLogger Audit
+@inject ISystemAnalyserStore Analyser
 @inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 @attribute [Authorize]
@@ -1042,6 +1043,7 @@
         catch (Exception ex)
         {
             _queryError = ex.Message;
+            Analyser.RecordError(SelectorState.Current.Provider.ToString(), DbActionCategory.QueryBuilder, "RunBuiltQuery", ex, username: _username);
         }
         finally
         {

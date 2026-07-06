@@ -6,6 +6,8 @@
 @inject NavigationManager Nav
 @inject ILogger<DataGrid> Logger
 @inject IJSRuntime JS
+@inject ISystemAnalyserStore Analyser
+@inject DatabaseSelectorState SelectorState
 
 <div class="panel data-grid-panel">
     <div class="grid-toolbar">
@@ -304,6 +306,7 @@
         {
             Logger.LogError(ex, "Error loading data for {Schema}.{Object} page {Page}", SchemaName, ObjectName, pageNumber);
             error = "Failed to load data. Please try again.";
+            Analyser.RecordError(SelectorState.Current.Provider.ToString(), DbActionCategory.DataBrowse, "GetPagedData", ex, SchemaName, ObjectName);
         }
         finally
         {

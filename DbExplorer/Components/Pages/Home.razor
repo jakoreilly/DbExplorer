@@ -1,8 +1,17 @@
 @page "/"
+@using DbExplorer.Core.Interfaces
+@using DbExplorer.Core.Models
 @using DbExplorer.Options
+@using DbExplorer.Services
 @using Microsoft.Extensions.Options
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
 @inject IOptions<QueryBuilderOptions> QBOpts
 @inject IOptions<ProfilerOptions> ProfilerOpts
+@inject IMetadataService Metadata
+@inject DatabaseSelectorState SelectorState
+@inject ILogger<Home> Logger
+@rendermode InteractiveServer
+@implements IDisposable
 
 <PageTitle>DbExplorer</PageTitle>
 
@@ -10,7 +19,87 @@
     <div class="welcome-hero">
         <h2>Welcome to DbExplorer</h2>
         <p>Browse schemas, inspect metadata and query your databases — read-only and audited.</p>
+        <span class="profiler-connection-badge">
+            @SelectorState.Current.Provider — @SelectorState.Current.Name@(SelectorState.SelectedCatalog is not null ? $" / {SelectorState.SelectedCatalog}" : "")
+        </span>
     </div>
+
+    @* ── Live database overview ── *@
+    @if (_isLoading)
+    {
+        <div class="home-dash-loading"><span class="spinner" aria-hidden="true"></span> Reading database metadata…</div>
+    }
+    else if (_error is not null)
+    {
+        <div class="profiler-error">@_error</div>
+    }
+    else
+    {
+        <div class="analyser-tiles">
+            <div class="analyser-tile">
+                <span class="analyser-tile-value">@_schemaCount</span>
+                <span class="analyser-tile-label">Schemas</span>
+            </div>
+            <div class="analyser-tile">
+                <span class="analyser-tile-value">@_tableCount</span>
+                <span class="analyser-tile-label">Tables</span>
+            </div>
+            <div class="analyser-tile">
+                <span class="analyser-tile-value">@_viewCount</span>
+                <span class="analyser-tile-label">Views</span>
+            </div>
+            <div class="analyser-tile">
+                <span class="analyser-tile-value">@_routineCount</span>
+                <span class="analyser-tile-label">Procedures &amp; functions</span>
+            </div>
+            <div class="analyser-tile">
+                <span class="analyser-tile-value">@_columnCount</span>
+                <span class="analyser-tile-label">Columns</span>
+            </div>
+        </div>
+
+        @if (_topSchemas.Count > 0)
+        {
+            <div class="home-panel">
+                <div class="home-panel-title">Objects by schema <span class="home-panel-sub">top @_topSchemas.Count</span></div>
+                <div class="home-bars">
+                    @{
+                        var maxObj = Math.Max(1, _topSchemas.Max(s => s.Total));
+                    }
+                    @foreach (var s in _topSchemas)
+                    {
+                        var pct = (100.0 * s.Total / maxObj).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+                        <div class="home-bar-row">
+                            <span class="home-bar-name" title="@s.Schema">@s.Schema</span>
+                            <span class="home-bar-track"><span class="home-bar-fill" style="width:@(pct)%"></span></span>
+                            <span class="home-bar-value">@s.Total</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        @if (_topTables.Count > 0)
+        {
+            <div class="home-panel">
+                <div class="home-panel-title">Widest tables <span class="home-panel-sub">by column count</span></div>
+                <div class="home-bars">
+                    @{
+                        var maxCol = Math.Max(1, _topTables.Max(t => t.Columns));
+                    }
+                    @foreach (var t in _topTables)
+                    {
+                        var pct = (100.0 * t.Columns / maxCol).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+                        <div class="home-bar-row">
+                            <span class="home-bar-name" title="@t.Name">@t.Name</span>
+                            <span class="home-bar-track"><span class="home-bar-fill home-bar-fill--alt" style="width:@(pct)%"></span></span>
+                            <span class="home-bar-value">@t.Columns</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    }
 
     <div class="welcome-cards">
         <a class="welcome-card" href="/profiler">
@@ -24,6 +113,11 @@
                 <span class="welcome-card-icon" aria-hidden="true">🧩</span>
                 <h3>Query Builder</h3>
                 <p>Compose SELECT queries visually — drag tables onto a canvas or use the form builder.</p>
+            </a>
+            <a class="welcome-card" href="/diagram">
+                <span class="welcome-card-icon" aria-hidden="true">🗺️</span>
+                <h3>Schema Diagram</h3>
+                <p>Visualise tables, columns and their foreign-key relationships on a canvas.</p>
             </a>
         }
         <div class="welcome-card">
@@ -43,3 +137,79 @@
         <li>Click any data cell to copy its value to the clipboard.</li>
     </ul>
 </div>
+
+@code {
+    private bool _isLoading = true;
+    private string? _error;
+
+    private int _schemaCount;
+    private int _tableCount;
+    private int _viewCount;
+    private int _routineCount;
+    private int _columnCount;
+    private List<(string Schema, int Total)> _topSchemas = new();
+    private List<(string Name, int Columns)> _topTables = new();
+
+    private int _generation;
+
+    protected override void OnInitialized()
+    {
+        SelectorState.OnChange += HandleDatabaseChanged;
+    }
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private void HandleDatabaseChanged()
+        => _ = InvokeAsync(async () => await LoadAsync());
+
+    private async Task LoadAsync()
+    {
+        var gen = ++_generation;
+        _isLoading = true;
+        _error = null;
+        StateHasChanged();
+
+        try
+        {
+            var schemas = await Metadata.GetSchemasAsync();
+            var objects = await Metadata.GetObjectsAsync();
+            var columns = await Metadata.GetAllColumnsAsync();
+            if (gen != _generation) return; // a newer load superseded this one
+
+            _schemaCount  = schemas.Count;
+            _tableCount   = objects.Count(o => o.ObjectType == "TABLE");
+            _viewCount    = objects.Count(o => o.ObjectType == "VIEW");
+            _routineCount = objects.Count(o => o.ObjectType is "PROCEDURE" or "SCALAR_FUNCTION" or "TABLE_FUNCTION");
+            _columnCount  = columns.Count;
+
+            _topSchemas = objects
+                .GroupBy(o => o.SchemaName)
+                .Select(g => (Schema: g.Key, Total: g.Count()))
+                .OrderByDescending(x => x.Total)
+                .Take(8)
+                .ToList();
+
+            _topTables = columns
+                .GroupBy(c => $"{c.SchemaName}.{c.TableName}")
+                .Select(g => (Name: g.Key, Columns: g.Count()))
+                .OrderByDescending(x => x.Columns)
+                .Take(8)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Home dashboard failed to load metadata");
+            _error = "Could not read database metadata. Check the connection in the top-bar selector.";
+        }
+        finally
+        {
+            if (gen == _generation)
+            {
+                _isLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+
+    public void Dispose() => SelectorState.OnChange -= HandleDatabaseChanged;
+}

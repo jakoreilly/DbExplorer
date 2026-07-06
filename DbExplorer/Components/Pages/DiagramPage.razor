@@ -8,6 +8,7 @@
 @using static Microsoft.AspNetCore.Components.Web.RenderMode
 @inject IMetadataService Metadata
 @inject DatabaseSelectorState SelectorState
+@inject DiagramInteropService DiagramInterop
 @inject IOptions<QueryBuilderOptions> QBOpts
 @inject NavigationManager Nav
 @attribute [Authorize]
@@ -31,7 +32,8 @@
     </div>
 
     <div class="profiler-readonly-notice">
-        Visual schema relationships — tables and foreign keys from the selected schema.
+        Add tables to the canvas to see them and their foreign-key relationships. Only the
+        tables you pick are drawn, so this stays fast even on large databases.
     </div>
 
     <div class="diagram-filters">
@@ -50,9 +52,9 @@
                 }
             </select>
         }
-        @if (!string.IsNullOrEmpty(_selectedSchema) && _tableCount > MaxVisibleTables)
+        @if (!string.IsNullOrWhiteSpace(_selectedSchema) && !_isLoading)
         {
-            <span class="diagram-hint">Showing @MaxVisibleTables tables of @_tableCount. Diagram capped to prevent rendering lag.</span>
+            <span class="diagram-hint">@_placedCount / @_tables.Count table(s) on canvas</span>
         }
     </div>
 
@@ -60,7 +62,7 @@
     {
         <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
             <div class="profiler-panel-body">
-                <p class="profiler-empty">Select a schema to view its tables and relationships.</p>
+                <p class="profiler-empty">Select a schema to begin.</p>
             </div>
         </div>
     }
@@ -72,7 +74,7 @@
             </div>
         </div>
     }
-    else if (_visibleTables.Count == 0)
+    else if (_tables.Count == 0)
     {
         <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
             <div class="profiler-panel-body">
@@ -82,6 +84,31 @@
     }
     else
     {
+        @* ── Table palette ── *@
+        <div class="diagram-palette">
+            <input class="qb-select diagram-palette-filter" placeholder="Filter tables…" @bind="_tableFilter" @bind:event="oninput" />
+            <button class="profiler-btn" @onclick="AddAllAsync" disabled="@(_tables.Count > AddAllLimit)">
+                Add all (@_tables.Count)
+            </button>
+            <button class="profiler-btn profiler-btn--ghost" @onclick="ClearCanvas" disabled="@(_placedCount == 0)">Clear canvas</button>
+            @if (_tables.Count > AddAllLimit)
+            {
+                <span class="diagram-hint">Too many tables to add at once — pick individually or filter first.</span>
+            }
+        </div>
+        <div class="diagram-chip-list">
+            @foreach (var t in FilteredTables)
+            {
+                var placed = _nodes.ContainsKey(t.ObjectName);
+                <button class="diagram-chip @(placed ? "diagram-chip--placed" : "")"
+                        @onclick="() => ToggleTableAsync(t.ObjectName)"
+                        title="@(placed ? "Remove from canvas" : "Add to canvas")">
+                    <span class="diagram-chip-mark">@(placed ? "✓" : "+")</span>@t.ObjectName
+                </button>
+            }
+        </div>
+
+        @* ── Canvas ── *@
         <div class="diagram-canvas-area" style="margin-top:0.75rem">
             @if (_diagramReady && _blazorDiagram is not null)
             {
@@ -94,19 +121,27 @@
                 <div class="qb-hint">Waiting for the diagram canvas to initialize…</div>
             }
         </div>
+        @if (_placedCount == 0)
+        {
+            <p class="diagram-hint" style="margin-top:0.5rem">Canvas is empty — click a table chip above, or a relationship below, to draw it. Drag a table's header to reposition it.</p>
+        }
 
+        @* ── FK relationship list ── *@
         @if (_allForeignKeys.Count > 0)
         {
             <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
                 <div class="profiler-panel-header" style="cursor:default">
                     <span>Foreign Key Relationships</span>
-                    <span class="profiler-panel-meta">@_allForeignKeys.Count relationship(s)</span>
+                    <span class="profiler-panel-meta">@_allForeignKeys.Count relationship(s) · click to draw</span>
                 </div>
                 <div class="profiler-panel-body">
                     <div class="diagram-fk-grid">
                         @foreach (var fk in _allForeignKeys)
                         {
-                            <div class="diagram-fk-row">
+                            var bothPlaced = _nodes.ContainsKey(fk.TableName) && _nodes.ContainsKey(fk.ReferencedTable);
+                            <div class="diagram-fk-row diagram-fk-row--clickable @(bothPlaced ? "diagram-fk-row--active" : "")"
+                                 @onclick="() => AddFkEndpointsAsync(fk)"
+                                 title="Add both tables to the canvas">
                                 <span class="diagram-fk-label">@fk.SchemaName.@fk.TableName.<strong>@fk.ColumnName</strong></span>
                                 <span class="diagram-fk-arrow">→</span>
                                 <span class="diagram-fk-label">@fk.ReferencedSchema.@fk.ReferencedTable.<strong>@fk.ReferencedColumn</strong></span>
@@ -128,15 +163,22 @@
     private string _selectedSchema = "";
     private List<DatabaseObjectInfo> _tables = new();
     private List<ForeignKeyInfo> _allForeignKeys = new();
+    private readonly Dictionary<string, TableDiagramNode> _nodes = new(StringComparer.OrdinalIgnoreCase);
+    private string _tableFilter = "";
     private bool _isLoading;
-    private int _tableCount;
 
     private BlazorDiagram? _blazorDiagram;
     private bool _diagramReady;
-    private const int MaxVisibleTables = 75;
+    private int _dbGeneration;
 
-    private List<DatabaseObjectInfo> _visibleTables =>
-        _tables.Take(MaxVisibleTables).ToList();
+    private const int AddAllLimit = 40;
+
+    private int _placedCount => _nodes.Count;
+
+    private IEnumerable<DatabaseObjectInfo> FilteredTables =>
+        string.IsNullOrWhiteSpace(_tableFilter)
+            ? _tables
+            : _tables.Where(t => t.ObjectName.Contains(_tableFilter, StringComparison.OrdinalIgnoreCase));
 
     protected override void OnInitialized()
     {
@@ -169,9 +211,7 @@
 
         var currentCatalog = SelectorState.SelectedCatalog;
         if (string.IsNullOrWhiteSpace(currentCatalog))
-        {
             currentCatalog = await Metadata.GetCurrentCatalogAsync();
-        }
 
         if (!string.IsNullOrWhiteSpace(currentCatalog) &&
             _schemas.Any(s => string.Equals(s.SchemaName, currentCatalog, StringComparison.OrdinalIgnoreCase)))
@@ -190,8 +230,6 @@
         }
     }
 
-    private int _dbGeneration;
-
     private void HandleDatabaseChanged()
     {
         var gen = Interlocked.Increment(ref _dbGeneration);
@@ -200,6 +238,7 @@
             _selectedSchema = "";
             _tables = new();
             _allForeignKeys = new();
+            _tableFilter = "";
             InitDiagram();
 
             var schemas = (await Metadata.GetSchemasAsync()).ToList();
@@ -213,83 +252,47 @@
     public void Dispose()
     {
         SelectorState.OnChange -= HandleDatabaseChanged;
+        DiagramInterop.OnNodeRemove = null;
+        DiagramInterop.OnGraphChanged = null;
     }
 
     private void InitDiagram()
     {
         _blazorDiagram = new BlazorDiagram();
         _blazorDiagram.RegisterComponent<TableDiagramNode, TableNodeWidget>();
+        _nodes.Clear();
+
+        // The node widget's ✕ button raises OnNodeRemove; wire it to remove the table.
+        DiagramInterop.OnNodeRemove = node =>
+        {
+            if (node is TableDiagramNode t)
+                _ = InvokeAsync(() => { RemoveTableNode(t.TableName); StateHasChanged(); });
+        };
+        DiagramInterop.OnGraphChanged = null;
     }
 
     private async Task OnSchemaChangedAsync()
     {
         _tables = new();
         _allForeignKeys = new();
+        _tableFilter = "";
         InitDiagram();
         StateHasChanged();
 
         if (string.IsNullOrWhiteSpace(_selectedSchema)) return;
-
         _selectedSchema = _selectedSchema.Trim();
-
-        if (string.IsNullOrWhiteSpace(_selectedSchema)) return;
 
         _isLoading = true;
         StateHasChanged();
         try
         {
-            var tables = (await Metadata.GetObjectsAsync(_selectedSchema))
+            // Fast: only the table list and the FK map — no per-table column round-trips.
+            _tables = (await Metadata.GetObjectsAsync(_selectedSchema))
                 .Where(o => o.ObjectType is "TABLE" or "VIEW")
                 .OrderBy(t => t.ObjectName)
                 .ToList();
 
-            _tableCount = tables.Count;
-            _tables = tables;
-
-            // Grid layout: arrange tables in a square-ish grid.
-            var cols = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(_visibleTables.Count)));
-            const int spacingX = 250;
-            const int spacingY = 200;
-
-            for (var i = 0; i < _visibleTables.Count; i++)
-            {
-                var table = _visibleTables[i];
-                var col = i % cols;
-                var row = i / cols;
-                var x = col * spacingX;
-                var y = row * spacingY;
-
-                var node = new TableDiagramNode($"t{i}", new Point(x, y))
-                {
-                    SchemaName = table.SchemaName,
-                    TableName = table.ObjectName
-                };
-
-                var columns = (await Metadata.GetColumnsAsync(_selectedSchema, table.ObjectName)).ToList();
-                node.SetColumns(columns);
-
-                _blazorDiagram.Nodes.Add(node);
-            }
-
-            // Load all foreign keys for the schema in one round-trip,
-            // then keep only those belonging to visible tables.
-            var visibleNames = _visibleTables.Select(t => t.ObjectName)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            if (!string.IsNullOrWhiteSpace(_selectedSchema))
-            {
-                _allForeignKeys = (await Metadata.GetAllForeignKeysAsync(_selectedSchema))
-                    .Where(fk => visibleNames.Contains(fk.TableName))
-                    .ToList();
-            }
-            else
-            {
-                _allForeignKeys = new();
-            }
-
-            // FK relationships are listed below the canvas for reference; the canvas
-            // itself supports drag-and-drop linking but does not pre-draw FK edges
-            // (Z.Blazor.Diagrams' programmatic link API is unreliable across versions).
+            _allForeignKeys = (await Metadata.GetAllForeignKeysAsync(_selectedSchema)).ToList();
         }
         finally
         {
@@ -297,5 +300,98 @@
         }
 
         StateHasChanged();
+    }
+
+    private async Task ToggleTableAsync(string tableName)
+    {
+        if (_nodes.ContainsKey(tableName))
+            RemoveTableNode(tableName);
+        else
+            await AddTableAsync(tableName);
+    }
+
+    private async Task AddTableAsync(string tableName)
+    {
+        if (_blazorDiagram is null || _nodes.ContainsKey(tableName)) return;
+
+        var i = _nodes.Count;
+        const int cols = 4;
+        var x = (i % cols) * 280 + 40;
+        var y = (i / cols) * 250 + 40;
+
+        var node = new TableDiagramNode($"t{i}", new Point(x, y))
+        {
+            SchemaName = _selectedSchema,
+            TableName = tableName
+        };
+
+        var columns = (await Metadata.GetColumnsAsync(_selectedSchema, tableName)).ToList();
+        node.SetColumns(columns);
+
+        _blazorDiagram.Nodes.Add(node);
+        _nodes[tableName] = node;
+
+        RedrawLinks();
+        StateHasChanged();
+    }
+
+    private void RemoveTableNode(string tableName)
+    {
+        if (_blazorDiagram is null || !_nodes.TryGetValue(tableName, out var node)) return;
+        _blazorDiagram.Nodes.Remove(node);
+        _nodes.Remove(tableName);
+        RedrawLinks();
+    }
+
+    private async Task AddFkEndpointsAsync(ForeignKeyInfo fk)
+    {
+        // Both endpoint tables must live in the selected schema to appear on the canvas.
+        if (_tables.Any(t => string.Equals(t.ObjectName, fk.TableName, StringComparison.OrdinalIgnoreCase)))
+            await AddTableAsync(fk.TableName);
+        if (_tables.Any(t => string.Equals(t.ObjectName, fk.ReferencedTable, StringComparison.OrdinalIgnoreCase)))
+            await AddTableAsync(fk.ReferencedTable);
+    }
+
+    private async Task AddAllAsync()
+    {
+        if (_tables.Count > AddAllLimit) return;
+        foreach (var t in _tables)
+            await AddTableAsync(t.ObjectName);
+    }
+
+    private void ClearCanvas()
+    {
+        InitDiagram();
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Rebuilds all FK edges between tables currently on the canvas. Links connect the
+    /// child table's FK column port to the referenced table's key column port.
+    /// </summary>
+    private void RedrawLinks()
+    {
+        if (_blazorDiagram is null) return;
+
+        foreach (var link in _blazorDiagram.Links.ToList())
+            _blazorDiagram.Links.Remove(link);
+
+        foreach (var fk in _allForeignKeys)
+        {
+            if (!_nodes.TryGetValue(fk.TableName, out var child)) continue;
+            if (!_nodes.TryGetValue(fk.ReferencedTable, out var parent)) continue;
+
+            var srcPort = child.GetPortForColumn(fk.ColumnName) ?? child.GetLeftPortForColumn(fk.ColumnName);
+            var tgtPort = parent.GetLeftPortForColumn(fk.ReferencedColumn) ?? parent.GetPortForColumn(fk.ReferencedColumn);
+            if (srcPort is null || tgtPort is null) continue;
+
+            var link = new LinkModel(new SinglePortAnchor(srcPort), new SinglePortAnchor(tgtPort))
+            {
+                TargetMarker = LinkMarker.Arrow
+            };
+            _blazorDiagram.Links.Add(link);
+        }
+
+        _blazorDiagram.Refresh();
     }
 }
