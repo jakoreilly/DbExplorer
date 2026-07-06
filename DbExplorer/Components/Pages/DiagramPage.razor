@@ -1,0 +1,301 @@
+@page "/diagram"
+@using DbExplorer.Core.Interfaces
+@using DbExplorer.Core.Models
+@using DbExplorer.Options
+@using DbExplorer.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.Extensions.Options
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@inject IMetadataService Metadata
+@inject DatabaseSelectorState SelectorState
+@inject IOptions<QueryBuilderOptions> QBOpts
+@inject NavigationManager Nav
+@attribute [Authorize]
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Schema Diagram — DbExplorer</PageTitle>
+
+@if (!QBOpts.Value.Enabled)
+{
+    <div class="profiler-error">Diagram feature requires Query Builder to be enabled. Set <code>QueryBuilder:Enabled = true</code> in appsettings.json.</div>
+    return;
+}
+
+<div class="profiler-page">
+    <div class="profiler-page-header">
+        <h2>Schema Diagram</h2>
+        <span class="profiler-connection-badge">
+            @SelectorState.Current.Provider — @SelectorState.Current.Name@(SelectorState.SelectedCatalog is not null ? $" / {SelectorState.SelectedCatalog}" : "")
+        </span>
+    </div>
+
+    <div class="profiler-readonly-notice">
+        Visual schema relationships — tables and foreign keys from the selected schema.
+    </div>
+
+    <div class="diagram-filters">
+        <label class="diagram-label">Schema</label>
+        @if (_schemas.Count == 0)
+        {
+            <span class="qb-hint">Loading schemas…</span>
+        }
+        else
+        {
+            <select class="qb-select" @bind="_selectedSchema" @bind:after="OnSchemaChangedAsync">
+                <option value="">— select schema —</option>
+                @foreach (var s in _schemas)
+                {
+                    <option value="@s.SchemaName">@s.SchemaName</option>
+                }
+            </select>
+        }
+        @if (!string.IsNullOrEmpty(_selectedSchema) && _tableCount > MaxVisibleTables)
+        {
+            <span class="diagram-hint">Showing @MaxVisibleTables tables of @_tableCount. Diagram capped to prevent rendering lag.</span>
+        }
+    </div>
+
+    @if (string.IsNullOrWhiteSpace(_selectedSchema))
+    {
+        <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+            <div class="profiler-panel-body">
+                <p class="profiler-empty">Select a schema to view its tables and relationships.</p>
+            </div>
+        </div>
+    }
+    else if (_isLoading)
+    {
+        <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+            <div class="profiler-panel-body">
+                <p class="qb-hint"><span class="spinner" aria-hidden="true"></span>Loading schema…</p>
+            </div>
+        </div>
+    }
+    else if (_visibleTables.Count == 0)
+    {
+        <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+            <div class="profiler-panel-body">
+                <p class="profiler-empty">No tables found in this schema.</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="diagram-canvas-area" style="margin-top:0.75rem">
+            @if (_diagramReady && _blazorDiagram is not null)
+            {
+                <CascadingValue Value="_blazorDiagram">
+                    <DiagramCanvas @key="_blazorDiagram"></DiagramCanvas>
+                </CascadingValue>
+            }
+            else
+            {
+                <div class="qb-hint">Waiting for the diagram canvas to initialize…</div>
+            }
+        </div>
+
+        @if (_allForeignKeys.Count > 0)
+        {
+            <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+                <div class="profiler-panel-header" style="cursor:default">
+                    <span>Foreign Key Relationships</span>
+                    <span class="profiler-panel-meta">@_allForeignKeys.Count relationship(s)</span>
+                </div>
+                <div class="profiler-panel-body">
+                    <div class="diagram-fk-grid">
+                        @foreach (var fk in _allForeignKeys)
+                        {
+                            <div class="diagram-fk-row">
+                                <span class="diagram-fk-label">@fk.SchemaName.@fk.TableName.<strong>@fk.ColumnName</strong></span>
+                                <span class="diagram-fk-arrow">→</span>
+                                <span class="diagram-fk-label">@fk.ReferencedSchema.@fk.ReferencedTable.<strong>@fk.ReferencedColumn</strong></span>
+                                @if (!string.IsNullOrEmpty(fk.ConstraintName))
+                                {
+                                    <span class="diagram-fk-constraint">@fk.ConstraintName</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private List<SchemaInfo> _schemas = new();
+    private string _selectedSchema = "";
+    private List<DatabaseObjectInfo> _tables = new();
+    private List<ForeignKeyInfo> _allForeignKeys = new();
+    private bool _isLoading;
+    private int _tableCount;
+
+    private BlazorDiagram? _blazorDiagram;
+    private bool _diagramReady;
+    private const int MaxVisibleTables = 75;
+
+    private List<DatabaseObjectInfo> _visibleTables =>
+        _tables.Take(MaxVisibleTables).ToList();
+
+    protected override void OnInitialized()
+    {
+        SelectorState.OnChange += HandleDatabaseChanged;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _schemas = (await Metadata.GetSchemasAsync())
+            .Where(s => !string.IsNullOrWhiteSpace(s.SchemaName))
+            .Select(s => new SchemaInfo(s.SchemaName.Trim()))
+            .ToList();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+            return;
+
+        _diagramReady = true;
+        InitDiagram();
+        await EnsureSelectedSchemaAsync();
+        StateHasChanged();
+    }
+
+    private async Task EnsureSelectedSchemaAsync()
+    {
+        if (!string.IsNullOrWhiteSpace(_selectedSchema) || _schemas.Count == 0)
+            return;
+
+        var currentCatalog = SelectorState.SelectedCatalog;
+        if (string.IsNullOrWhiteSpace(currentCatalog))
+        {
+            currentCatalog = await Metadata.GetCurrentCatalogAsync();
+        }
+
+        if (!string.IsNullOrWhiteSpace(currentCatalog) &&
+            _schemas.Any(s => string.Equals(s.SchemaName, currentCatalog, StringComparison.OrdinalIgnoreCase)))
+        {
+            _selectedSchema = currentCatalog!.Trim();
+        }
+        else if (_schemas.Count > 0)
+        {
+            _selectedSchema = _schemas[0].SchemaName;
+        }
+
+        if (!string.IsNullOrWhiteSpace(_selectedSchema))
+        {
+            await OnSchemaChangedAsync();
+            StateHasChanged();
+        }
+    }
+
+    private int _dbGeneration;
+
+    private void HandleDatabaseChanged()
+    {
+        var gen = Interlocked.Increment(ref _dbGeneration);
+        _ = InvokeAsync(async () =>
+        {
+            _selectedSchema = "";
+            _tables = new();
+            _allForeignKeys = new();
+            InitDiagram();
+
+            var schemas = (await Metadata.GetSchemasAsync()).ToList();
+            if (gen != _dbGeneration) return;
+
+            _schemas = schemas;
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        SelectorState.OnChange -= HandleDatabaseChanged;
+    }
+
+    private void InitDiagram()
+    {
+        _blazorDiagram = new BlazorDiagram();
+        _blazorDiagram.RegisterComponent<TableDiagramNode, TableNodeWidget>();
+    }
+
+    private async Task OnSchemaChangedAsync()
+    {
+        _tables = new();
+        _allForeignKeys = new();
+        InitDiagram();
+        StateHasChanged();
+
+        if (string.IsNullOrWhiteSpace(_selectedSchema)) return;
+
+        _selectedSchema = _selectedSchema.Trim();
+
+        if (string.IsNullOrWhiteSpace(_selectedSchema)) return;
+
+        _isLoading = true;
+        StateHasChanged();
+        try
+        {
+            var tables = (await Metadata.GetObjectsAsync(_selectedSchema))
+                .Where(o => o.ObjectType is "TABLE" or "VIEW")
+                .OrderBy(t => t.ObjectName)
+                .ToList();
+
+            _tableCount = tables.Count;
+            _tables = tables;
+
+            // Grid layout: arrange tables in a square-ish grid.
+            var cols = Math.Max(1, (int)Math.Ceiling(Math.Sqrt(_visibleTables.Count)));
+            const int spacingX = 250;
+            const int spacingY = 200;
+
+            for (var i = 0; i < _visibleTables.Count; i++)
+            {
+                var table = _visibleTables[i];
+                var col = i % cols;
+                var row = i / cols;
+                var x = col * spacingX;
+                var y = row * spacingY;
+
+                var node = new TableDiagramNode($"t{i}", new Point(x, y))
+                {
+                    SchemaName = table.SchemaName,
+                    TableName = table.ObjectName
+                };
+
+                var columns = (await Metadata.GetColumnsAsync(_selectedSchema, table.ObjectName)).ToList();
+                node.SetColumns(columns);
+
+                _blazorDiagram.Nodes.Add(node);
+            }
+
+            // Load all foreign keys for the schema in one round-trip,
+            // then keep only those belonging to visible tables.
+            var visibleNames = _visibleTables.Select(t => t.ObjectName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(_selectedSchema))
+            {
+                _allForeignKeys = (await Metadata.GetAllForeignKeysAsync(_selectedSchema))
+                    .Where(fk => visibleNames.Contains(fk.TableName))
+                    .ToList();
+            }
+            else
+            {
+                _allForeignKeys = new();
+            }
+
+            // FK relationships are listed below the canvas for reference; the canvas
+            // itself supports drag-and-drop linking but does not pre-draw FK edges
+            // (Z.Blazor.Diagrams' programmatic link API is unreliable across versions).
+        }
+        finally
+        {
+            _isLoading = false;
+        }
+
+        StateHasChanged();
+    }
+}
