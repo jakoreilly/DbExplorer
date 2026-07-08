@@ -209,10 +209,50 @@
             setTimeout(function () { cm.refresh(); }, 120);
 
             if (hintsAvailable) {
-                // Feed table/column metadata to the sql-hint addon on every popup.
+                // sql-hint alone only suggests columns after an explicit "table." prefix.
+                // Wrap it so bare identifiers also complete against the columns of every
+                // table named in the query's FROM/JOIN/UPDATE/INTO clauses.
                 cm.setOption('hintOptions', {
                     get tables() { return host._cmTables; },
-                    completeSingle: false
+                    completeSingle: false,
+                    hint: function (editor, options) {
+                        var result = CodeMirror.hint.sql(editor, options) || { list: [] };
+                        var cur = editor.getCursor();
+                        var token = editor.getTokenAt(cur);
+                        // "alias." / "table." completions are already handled by sql-hint.
+                        var before = editor.getLine(cur.line).slice(0, token.start);
+                        if (/\.\s*$/.test(before) || token.string.indexOf('.') !== -1) return result;
+                        var word = /[\w$]/.test(token.string) ? token.string.toLowerCase() : '';
+
+                        // Case-insensitive lookup of tables mentioned in the query text.
+                        var lower = {};
+                        Object.keys(host._cmTables || {}).forEach(function (k) { lower[k.toLowerCase()] = host._cmTables[k]; });
+                        var seen = {};
+                        result.list.forEach(function (i) { seen[(i.text || i).toLowerCase()] = true; });
+                        var extras = [];
+                        var re = /\b(?:from|join|update|into)\s+([A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*)?)/gi;
+                        var m, text = editor.getValue();
+                        while ((m = re.exec(text)) !== null) {
+                            var cols = lower[m[1].toLowerCase()];
+                            if (!cols) continue;
+                            cols.forEach(function (c) {
+                                var key = c.toLowerCase();
+                                if (seen[key]) return;
+                                if (word && key.indexOf(word) !== 0) return;
+                                seen[key] = true;
+                                extras.push({ text: c });
+                            });
+                        }
+                        if (extras.length) {
+                            extras.sort(function (a, b) { return a.text.localeCompare(b.text); });
+                            result.list = extras.concat(result.list);
+                            if (!result.from) {
+                                result.from = CodeMirror.Pos(cur.line, word ? token.start : cur.ch);
+                                result.to = CodeMirror.Pos(cur.line, word ? token.end : cur.ch);
+                            }
+                        }
+                        return result;
+                    }
                 });
                 // Auto-open suggestions while typing identifiers or after "." (table.column).
                 cm.on('inputRead', function (editor, change) {

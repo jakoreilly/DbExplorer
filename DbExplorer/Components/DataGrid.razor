@@ -29,6 +29,7 @@
         {
             <button @onclick="ClearColumnSort" title="Clear column sort (return to PK)">✕ @sortColumn @ColSortArrow(sortColumn)</button>
         }
+        <button @onclick="ApplyFilters" title="Apply column filters">Search</button>
         @if (activeFilters.Count > 0)
         {
             <button @onclick="ClearFilters" title="Clear filters">✕ Clear filters (@activeFilters.Count)</button>
@@ -365,22 +366,26 @@
         activeFilters = columns
             .SelectMany(col =>
             {
-                var rawValue = columnFilters.GetValueOrDefault(col);
                 var op = filterOps.GetValueOrDefault(col, "Contains");
-                var value = rawValue?.Trim() ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(value))
-                    return Array.Empty<ColumnFilter>();
 
+                // Null checks take no value and their input is disabled.
                 if (op is "IsNull" or "IsNotNull")
-                    return new[] { new ColumnFilter(col, value, Enum.Parse<ColumnFilterOperator>(op)) };
+                    return new[] { new ColumnFilter(col, string.Empty, Enum.Parse<ColumnFilterOperator>(op)) };
+
+                // Values are stored pipe-encoded ("first|second") to feed the Between
+                // two-input UI; parse the parts rather than using the raw combined string.
+                var value = GetFilterValue(col).Trim();
 
                 if (op == "Between")
                 {
-                    var parts = value.Split('|', 2);
-                    return parts.Length == 2 && !string.IsNullOrWhiteSpace(parts[0]) && !string.IsNullOrWhiteSpace(parts[1])
-                        ? new[] { new ColumnFilter(col, parts[0].Trim(), ColumnFilterOperator.Between, parts[1].Trim()) }
+                    var value2 = GetFilterValue2(col).Trim();
+                    return !string.IsNullOrWhiteSpace(value) && !string.IsNullOrWhiteSpace(value2)
+                        ? new[] { new ColumnFilter(col, value, ColumnFilterOperator.Between, value2) }
                         : Array.Empty<ColumnFilter>();
                 }
+
+                if (string.IsNullOrWhiteSpace(value))
+                    return Array.Empty<ColumnFilter>();
 
                 return new[] { new ColumnFilter(col, value, Enum.Parse<ColumnFilterOperator>(op)) };
             })

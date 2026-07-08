@@ -16,6 +16,7 @@ public sealed class SystemAnalyserStore : ISystemAnalyserStore
     private readonly Queue<DbActionEvent> _events = new();
     private readonly bool _enabled;
     private readonly int _bufferSize;
+    private readonly TimeSpan _maxAge;
     private readonly ILogger<SystemAnalyserStore> _logger;
 
     public event Action? OnEvent;
@@ -26,6 +27,7 @@ public sealed class SystemAnalyserStore : ISystemAnalyserStore
     {
         _enabled = options.Value.Enabled;
         _bufferSize = options.Value.BufferSize;
+        _maxAge = TimeSpan.FromMinutes(options.Value.MaxAgeMinutes);
         _logger = logger;
     }
 
@@ -38,6 +40,12 @@ public sealed class SystemAnalyserStore : ISystemAnalyserStore
             {
                 while (_events.Count >= _bufferSize)
                     _events.Dequeue();
+
+                // Events enqueue in timestamp order, so the oldest is always at the front.
+                var cutoff = DateTimeOffset.UtcNow - _maxAge;
+                while (_events.Count > 0 && _events.Peek().Timestamp < cutoff)
+                    _events.Dequeue();
+
                 _events.Enqueue(evt);
             }
             // Invoke OUTSIDE the lock: a subscriber that re-enters GetEvents must not deadlock.

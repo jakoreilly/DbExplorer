@@ -9,8 +9,9 @@ namespace DbExplorer.Tests.Unit;
 
 public class SystemAnalyserStoreTests
 {
-    private static SystemAnalyserStore Create(int bufferSize = 5000, bool enabled = true) =>
-        new(Microsoft.Extensions.Options.Options.Create(new AnalyserOptions { Enabled = enabled, BufferSize = bufferSize }),
+    private static SystemAnalyserStore Create(int bufferSize = 5000, bool enabled = true, int maxAgeMinutes = 1440) =>
+        new(Microsoft.Extensions.Options.Options.Create(
+                new AnalyserOptions { Enabled = enabled, BufferSize = bufferSize, MaxAgeMinutes = maxAgeMinutes }),
             NullLogger<SystemAnalyserStore>.Instance);
 
     private static DbActionEvent Evt(bool success = true, DateTimeOffset? ts = null) =>
@@ -66,6 +67,30 @@ public class SystemAnalyserStoreTests
         store.OnEvent += () => fired++;
         store.Record(Evt());
         Assert.Equal(1, fired);
+    }
+
+    [Fact]
+    public void Record_EvictsEventsOlderThanMaxAge_OnNextWrite()
+    {
+        var store = Create(bufferSize: 100, maxAgeMinutes: 15);
+        store.Record(Evt(ts: DateTimeOffset.UtcNow.AddMinutes(-30)));
+        store.Record(Evt(ts: DateTimeOffset.UtcNow.AddMinutes(-20)));
+        var recent = Evt();
+        store.Record(recent);
+
+        var events = store.GetEvents(TimeSpan.FromHours(2));
+        Assert.Single(events);
+        Assert.Equal(recent.Timestamp, events[0].Timestamp);
+    }
+
+    [Fact]
+    public void Record_KeepsEventsWithinMaxAge()
+    {
+        var store = Create(bufferSize: 100, maxAgeMinutes: 60);
+        store.Record(Evt(ts: DateTimeOffset.UtcNow.AddMinutes(-30)));
+        store.Record(Evt());
+
+        Assert.Equal(2, store.GetEvents(TimeSpan.FromHours(2)).Count);
     }
 
     [Fact]

@@ -14,6 +14,7 @@
 @inject AuthenticationStateProvider AuthState
 @inject IJSRuntime JS
 @inject ThemeState ThemeState
+@inject DbExplorer.Services.QueryHandoffState QueryHandoff
 @implements IDisposable
 @rendermode InteractiveServer
 
@@ -425,6 +426,14 @@
     {
         queryLog = Profiler.GetHistory();
         SelectorState.OnChange += HandleDatabaseChanged;
+
+        // A query handed over from the Search page ("Open in Profiler") prefills the editor.
+        var handoff = QueryHandoff.Consume();
+        if (!string.IsNullOrWhiteSpace(handoff))
+        {
+            queryText = handoff;
+            panel1Open = true;
+        }
     }
 
     private void HandleDatabaseChanged()

@@ -14,10 +14,18 @@ public sealed class DiagramInteropService : IDisposable
     /// <summary>Called by <see cref="TableNodeWidget"/> when column selection changes.</summary>
     public Action? OnGraphChanged { get; set; }
 
+    /// <summary>Called by <see cref="EntityMapNodeWidget"/> when its expand/collapse chevron is clicked.</summary>
+    public Action<EntityMapNode>? OnEntityNodeToggle { get; set; }
+
+    /// <summary>Called by <see cref="EntityMapNodeWidget"/> when its focus button is clicked.</summary>
+    public Action<EntityMapNode>? OnEntityNodeFocus { get; set; }
+
     /// <summary>Releases subscriber references to prevent memory leaks after circuit teardown.</summary>
     public void Dispose()
     {
         OnNodeRemove = null;
         OnGraphChanged = null;
+        OnEntityNodeToggle = null;
+        OnEntityNodeFocus = null;
     }
 }

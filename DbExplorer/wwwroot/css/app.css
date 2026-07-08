@@ -1390,6 +1390,75 @@ html.theme-dark .diagram-link path,
 html.theme-dark .diagram-link path.selection-helper,
 .layout.theme-dark .diagram-link path.selection-helper { stroke: transparent; }
 
+/* Entity Map — read-only table node (no ports/checkboxes beyond link anchors) */
+.emap-node {
+    background: var(--surface);
+    border: 1.5px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    min-width: 180px;
+    max-width: 260px;
+    box-shadow: var(--shadow-md);
+    font-size: 0.82rem;
+    position: relative;
+    overflow: hidden;
+    transition: opacity var(--speed) ease, border-color var(--speed) ease;
+}
+.emap-node--highlight { border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring), var(--shadow-md); }
+.emap-node--dim { opacity: 0.35; }
+.emap-node__header {
+    background: linear-gradient(135deg, var(--primary), var(--type-view));
+    color: #fff;
+    padding: 0.4rem 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+}
+.emap-node__chevron { font-size: 0.7rem; opacity: 0.85; }
+.emap-node__title { font-size: 0.8rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.emap-node__badge {
+    margin-left: auto;
+    font-size: 0.68rem;
+    font-weight: 700;
+    background: rgba(255,255,255,0.25);
+    color: #fff;
+    border-radius: var(--radius-pill);
+    padding: 0.05rem 0.4rem;
+}
+.emap-node__focus {
+    border: none;
+    background: transparent;
+    color: #fff;
+    opacity: 0.65;
+    cursor: pointer;
+    font-size: 0.8rem;
+    line-height: 1;
+    padding: 0.05rem 0.2rem;
+}
+.emap-node__focus:hover { opacity: 1; }
+.emap-node__cols { padding: 0.3rem 0.6rem; max-height: 240px; overflow-y: auto; background: var(--surface); }
+.emap-node__loading, .emap-node__empty { color: var(--muted); font-style: italic; padding: 0.3rem 0; }
+.emap-col { display: flex; align-items: center; gap: 0.35rem; padding: 0.15rem 0; line-height: 1.3; }
+.emap-col--pk .emap-col__name { font-weight: 600; }
+.emap-col__name { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.emap-col__fk { font-size: 0.65rem; font-weight: 700; color: var(--type-view); }
+.emap-col__type { color: var(--faint); font-size: 0.7rem; margin-left: auto; white-space: nowrap; padding-left: 0.3rem; font-family: var(--font-mono); }
+.emap-node__port { position: absolute !important; top: 50%; transform: translateY(-50%); }
+.emap-node__port--right { right: -7px; }
+.emap-node__port--left  { left: -7px; }
+.emap-node .diagram-port {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--faint);
+    border: 2px solid var(--surface);
+    box-sizing: border-box;
+    opacity: 0.6;
+}
+.emap-toolbar { display: flex; flex-direction: column; gap: 0.45rem; margin-top: 0.85rem; }
+.emap-toolbar-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.emap-toolbar-group { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+
 /* ── Density: compact mode ────────────────────────────────────────────────── */
 
 .layout.density-compact td { padding: 0.22rem 0.6rem; }

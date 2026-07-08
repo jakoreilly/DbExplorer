@@ -1,0 +1,68 @@
+@using Blazor.Diagrams.Components.Renderers
+@using DbExplorer.Services
+@inject DiagramInteropService DiagramInterop
+
+<div class="emap-node @(Node.Highlighted ? "emap-node--highlight" : "") @(Node.Dimmed ? "emap-node--dim" : "")">
+    <PortRenderer @key="Node.LeftPort" Port="Node.LeftPort" Class="emap-node__port emap-node__port--left" />
+
+    <div class="emap-node__header" @onclick="ToggleExpanded" @onpointerdown:stopPropagation>
+        <span class="emap-node__chevron">@(Node.IsExpanded ? "▾" : "▸")</span>
+        <span class="emap-node__title">@Node.SchemaName.@Node.TableName</span>
+        @if (Node.InDegree + Node.OutDegree > 0)
+        {
+            <span class="emap-node__badge" title="@Node.InDegree incoming / @Node.OutDegree outgoing foreign keys">
+                @(Node.InDegree + Node.OutDegree)
+            </span>
+        }
+        <button class="emap-node__focus" title="Focus the map on this table's neighborhood"
+                @onclick="FocusNode" @onclick:stopPropagation @onpointerdown:stopPropagation>◎</button>
+    </div>
+
+    @if (Node.IsExpanded)
+    {
+        <div class="emap-node__cols">
+            @if (Node.IsLoadingColumns)
+            {
+                <div class="emap-node__loading"><span class="spinner" aria-hidden="true"></span>Loading columns…</div>
+            }
+            else if (Node.Columns is { Count: 0 })
+            {
+                <div class="emap-node__empty">No columns</div>
+            }
+            else if (Node.Columns is not null)
+            {
+                @foreach (var col in Node.Columns)
+                {
+                    <div class="emap-col @(col.IsPrimaryKey ? "emap-col--pk" : "")">
+                        <span class="emap-col__name">@col.ColumnName</span>
+                        @if (col.IsPrimaryKey)
+                        {
+                            <span class="pill pill--pk">PK</span>
+                        }
+                        @if (Node.FkColumns.Contains(col.ColumnName))
+                        {
+                            <span class="emap-col__fk">FK</span>
+                        }
+                        <span class="emap-col__type">@col.DataType</span>
+                    </div>
+                }
+            }
+        </div>
+    }
+
+    <PortRenderer @key="Node.RightPort" Port="Node.RightPort" Class="emap-node__port emap-node__port--right" />
+</div>
+
+@code {
+    [Parameter] public EntityMapNode Node { get; set; } = default!;
+
+    private void ToggleExpanded()
+    {
+        DiagramInterop.OnEntityNodeToggle?.Invoke(Node);
+    }
+
+    private void FocusNode()
+    {
+        DiagramInterop.OnEntityNodeFocus?.Invoke(Node);
+    }
+}

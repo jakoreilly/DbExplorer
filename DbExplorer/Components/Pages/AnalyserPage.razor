@@ -1,13 +1,16 @@
 @page "/analyser"
 @using System.Globalization
+@using DbExplorer.Core.Analysis
 @using DbExplorer.Core.Interfaces
 @using DbExplorer.Core.Models
 @using DbExplorer.Options
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.Extensions.Options
+@using Microsoft.JSInterop
 @using static Microsoft.AspNetCore.Components.Web.RenderMode
 @inject ISystemAnalyserStore Analyser
 @inject IOptions<AnalyserOptions> AnalyserOpts
+@inject IJSRuntime JS
 @attribute [Authorize]
 @rendermode InteractiveServer
 @implements IDisposable
@@ -55,8 +58,16 @@
             <span class="analyser-tile-label">Errors</span>
         </div>
         <div class="analyser-tile">
+            <span class="analyser-tile-value">@_p50Ms<span class="analyser-tile-unit">ms</span></span>
+            <span class="analyser-tile-label">p50 latency</span>
+        </div>
+        <div class="analyser-tile">
             <span class="analyser-tile-value">@_p95Ms<span class="analyser-tile-unit">ms</span></span>
             <span class="analyser-tile-label">p95 latency</span>
+        </div>
+        <div class="analyser-tile">
+            <span class="analyser-tile-value">@_maxMs<span class="analyser-tile-unit">ms</span></span>
+            <span class="analyser-tile-label">Max latency</span>
         </div>
         <div class="analyser-tile @(_errorRate > 0 ? "analyser-tile--error" : "")">
             <span class="analyser-tile-value">@_errorRate.ToString("P1", CultureInfo.InvariantCulture)</span>
@@ -120,6 +131,30 @@
                             <td>@g.Category</td><td>@g.Count</td>
                             <td class="@(g.Errors > 0 ? "analyser-err-text" : "")">@g.Errors</td>
                             <td>@g.P50</td><td>@g.P95</td><td>@g.Max</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    @* ── Per-operation breakdown ── *@
+    <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+        <div class="profiler-panel-header" style="cursor:default">
+            <span>By operation</span>
+            <span class="profiler-panel-meta">top @_byOperation.Count by event count</span>
+        </div>
+        <div class="profiler-panel-body" style="overflow-x:auto">
+            <table class="data-table">
+                <thead><tr><th>Operation</th><th>Events</th><th>Errors</th><th>p50 ms</th><th>p95 ms</th></tr></thead>
+                <tbody>
+                    @foreach (var g in _byOperation)
+                    {
+                        <tr>
+                            <td class="analyser-op-cell" title="@g.Operation">@g.Operation</td>
+                            <td>@g.Count</td>
+                            <td class="@(g.Errors > 0 ? "analyser-err-text" : "")">@g.Errors</td>
+                            <td>@g.P50</td><td>@g.P95</td>
                         </tr>
                     }
                 </tbody>
@@ -222,7 +257,10 @@
             <pre class="analyser-detail-pre">@e.Operation</pre>
             @if (!string.IsNullOrWhiteSpace(e.Sql))
             {
-                <div class="analyser-detail-label">SQL</div>
+                <div class="analyser-detail-label">
+                    SQL
+                    <button class="profiler-btn profiler-btn--ghost profiler-btn--sm" @onclick="() => CopySqlAsync(e.Sql!)">Copy SQL</button>
+                </div>
                 <pre class="analyser-detail-pre">@e.Sql</pre>
             }
             @if (!e.Success)
@@ -243,33 +281,77 @@
     private IReadOnlyList<DbActionEvent> _events = [];
     private List<DbActionEvent> _errors = [];
     private List<DbActionEvent> _slowest = [];
-    private List<(DbActionCategory Category, int Count, int Errors, long P50, long P95, long Max)> _byCategory = [];
+    private IReadOnlyList<CategoryStat> _byCategory = [];
+    private IReadOnlyList<OperationStat> _byOperation = [];
     private List<(string Label, int Total, int Errors)> _buckets = [];
     private int _errorCount;
+    private long _p50Ms;
     private long _p95Ms;
+    private long _maxMs;
     private double _errorRate;
     private int LabelEvery => _windowMinutes switch { 15 => 3, 60 => 10, _ => 120 };
 
     // Expanded detail rows, keyed stably so expansion survives live refreshes.
     private readonly HashSet<string> _expanded = new();
-    private static string RowKey(DbActionEvent e) => $"{e.Timestamp.Ticks}|{e.Operation}|{e.ErrorMessage}";
+    private static string RowKey(DbActionEvent e) =>
+        $"{e.Timestamp.Ticks}|{e.Category}|{e.Operation}|{e.ElapsedMs}|{e.ErrorMessage}";
     private void ToggleRow(string key)
     {
         if (!_expanded.Remove(key)) _expanded.Add(key);
     }
 
+    private async Task CopySqlAsync(string sql)
+    {
+        try { await JS.InvokeAsync<bool>("copyToClipboard", sql); }
+        catch { /* clipboard API not available */ }
+    }
+
+    // Live mode debounces recompute to a fixed cadence instead of once per recorded event —
+    // under load, every DB action would otherwise trigger a full-window recompute + render.
+    private static readonly TimeSpan LiveRefreshInterval = TimeSpan.FromSeconds(1);
+    private PeriodicTimer? _liveTimer;
+    private CancellationTokenSource? _liveTimerCts;
+    private volatile bool _dirty;
+
     protected override void OnInitialized()
     {
         Analyser.OnEvent += HandleEvent;
         Recompute();
+        StartLiveTimer();
     }
 
-    public void Dispose() => Analyser.OnEvent -= HandleEvent;
+    public void Dispose()
+    {
+        Analyser.OnEvent -= HandleEvent;
+        _liveTimerCts?.Cancel();
+        _liveTimerCts?.Dispose();
+        _liveTimer?.Dispose();
+    }
+
+    private void StartLiveTimer()
+    {
+        _liveTimerCts = new CancellationTokenSource();
+        _liveTimer = new PeriodicTimer(LiveRefreshInterval);
+        _ = RunLiveTimerAsync(_liveTimer, _liveTimerCts.Token);
+    }
+
+    private async Task RunLiveTimerAsync(PeriodicTimer timer, CancellationToken ct)
+    {
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                if (!_dirty) continue;
+                _dirty = false;
+                await InvokeAsync(() => { Recompute(); StateHasChanged(); });
+            }
+        }
+        catch (OperationCanceledException) { /* circuit torn down */ }
+    }
 
     private void HandleEvent()
     {
-        if (!_live) return;
-        _ = InvokeAsync(() => { Recompute(); StateHasChanged(); });
+        if (_live) _dirty = true;
     }
 
     private void Refresh()
@@ -286,47 +368,21 @@
         _errorRate = _events.Count == 0 ? 0 : (double)_errorCount / _events.Count;
 
         var timed = _events.Where(e => e.ElapsedMs >= 0).Select(e => e.ElapsedMs).OrderBy(v => v).ToList();
-        _p95Ms = Percentile(timed, 0.95);
+        _p50Ms = AnalyserMath.Percentile(timed, 0.50);
+        _p95Ms = AnalyserMath.Percentile(timed, 0.95);
+        _maxMs = timed.Count == 0 ? 0 : timed[^1];
 
         _slowest = _events.Where(e => e.ElapsedMs >= 0).OrderByDescending(e => e.ElapsedMs).Take(10).ToList();
 
-        _byCategory = _events
-            .GroupBy(e => e.Category)
-            .Select(g =>
-            {
-                var t = g.Where(e => e.ElapsedMs >= 0).Select(e => e.ElapsedMs).OrderBy(v => v).ToList();
-                return (g.Key, g.Count(), g.Count(e => !e.Success),
-                        Percentile(t, 0.50), Percentile(t, 0.95), t.Count == 0 ? 0 : t[^1]);
-            })
-            .OrderByDescending(x => x.Item2)
-            .ToList();
+        _byCategory = AnalyserMath.SummarizeByCategory(_events);
+        _byOperation = AnalyserMath.SummarizeByOperation(_events);
 
         // Per-minute buckets over the whole window (oldest → newest, fixed count so the
         // x-axis is stable even when minutes have zero events). Cap 24h at 5-min buckets.
         var bucketMinutes = _windowMinutes <= 60 ? 1 : 5;
         var bucketCount = _windowMinutes / bucketMinutes;
-        var now = DateTimeOffset.UtcNow;
-        var start = now - TimeSpan.FromMinutes(_windowMinutes);
-        var buckets = new (string Label, int Total, int Errors)[bucketCount];
-        for (var i = 0; i < bucketCount; i++)
-        {
-            var t = start + TimeSpan.FromMinutes((double)i * bucketMinutes);
-            buckets[i] = (t.ToString("HH:mm"), 0, 0);
-        }
-        foreach (var e in _events)
-        {
-            var idx = (int)((e.Timestamp - start).TotalMinutes / bucketMinutes);
-            if (idx < 0 || idx >= bucketCount) continue;
-            buckets[idx].Total++;
-            if (!e.Success) buckets[idx].Errors++;
-        }
-        _buckets = buckets.ToList();
-    }
-
-    private static long Percentile(List<long> sortedAscending, double p)
-    {
-        if (sortedAscending.Count == 0) return 0;
-        var idx = (int)Math.Ceiling(p * sortedAscending.Count) - 1;
-        return sortedAscending[Math.Clamp(idx, 0, sortedAscending.Count - 1)];
+        var start = DateTimeOffset.UtcNow - TimeSpan.FromMinutes(_windowMinutes);
+        _buckets = AnalyserMath.Bucketize(_events, start, bucketMinutes, bucketCount)
+            .Select(b => (b.Label, b.Total, b.Errors)).ToList();
     }
 }

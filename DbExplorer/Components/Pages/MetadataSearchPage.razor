@@ -1,0 +1,317 @@
+@page "/search"
+@using DbExplorer.Services
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.JSInterop
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@inject MetadataSearchService SearchService
+@inject DataValueSearchService DataSearchService
+@inject DatabaseSelectorState SelectorState
+@inject QueryHandoffState QueryHandoff
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+@attribute [Authorize]
+@rendermode InteractiveServer
+@implements IDisposable
+
+<PageTitle>Search — DbExplorer</PageTitle>
+
+<div class="profiler-page">
+    <div class="profiler-page-header">
+        <h2>Search</h2>
+    </div>
+
+    <div class="emap-toolbar-row" style="margin-top:0.5rem">
+        <button class="profiler-btn @(_mode == Mode.Names ? "" : "profiler-btn--ghost")" @onclick="() => SetMode(Mode.Names)">By name</button>
+        <button class="profiler-btn @(_mode == Mode.Data ? "" : "profiler-btn--ghost")" @onclick="() => SetMode(Mode.Data)">By data value</button>
+    </div>
+
+    @if (_mode == Mode.Names)
+    {
+        <div class="profiler-readonly-notice">
+            Find tables and columns by name across every connection and every accessible database on each.
+        </div>
+
+        <form class="emap-toolbar-row" style="margin-top:0.85rem" @onsubmit="RunNameSearchAsync">
+            <input class="qb-input" style="max-width:320px" placeholder="Table or column name…"
+                   aria-label="Search tables and columns" @bind="_term" @bind:event="oninput" />
+            <button type="submit" class="profiler-btn" disabled="@(_searching || _term.Trim().Length < 2)">
+                @(_searching ? "Searching…" : "Search")
+            </button>
+            @if (_term.Trim().Length is > 0 and < 2)
+            {
+                <span class="qb-hint">Enter at least 2 characters.</span>
+            }
+        </form>
+
+        @if (_searching)
+        {
+            <p class="qb-hint" style="margin-top:0.75rem"><span class="spinner" aria-hidden="true"></span>Searching all connections…</p>
+        }
+        else if (_nameResults is not null)
+        {
+            var total = _nameResults.Sum(r => r.Hits.Count);
+            <p class="qb-hint" style="margin-top:0.75rem">
+                @total match(es) for “@_searchedTerm” across @_nameResults.Count connection(s).
+            </p>
+
+            @foreach (var result in _nameResults)
+            {
+                <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+                    <div class="profiler-panel-header" style="cursor:default">
+                        <span>@result.ConnectionName <span class="type-badge">@result.Provider</span></span>
+                        <span class="profiler-panel-meta">
+                            @(result.Error is not null
+                                ? "unavailable"
+                                : result.Hits.Count >= MetadataSearchService.MaxHitsPerConnection
+                                    ? $"first {MetadataSearchService.MaxHitsPerConnection} matches shown — narrow the search"
+                                    : $"{result.Hits.Count} match(es)")
+                        </span>
+                    </div>
+                    <div class="profiler-panel-body">
+                        @if (result.Error is not null)
+                        {
+                            <p class="profiler-error">@result.Error</p>
+                        }
+                        else if (result.Hits.Count == 0)
+                        {
+                            <p class="qb-hint">No matches.</p>
+                        }
+                        else
+                        {
+                            <table class="data-table">
+                                <thead>
+                                    <tr><th>Database</th><th>Schema</th><th>Table</th><th>Column</th><th>Type</th><th></th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var hit in result.Hits)
+                                    {
+                                        <tr>
+                                            <td>@hit.CatalogName</td>
+                                            <td>@hit.SchemaName</td>
+                                            <td>@hit.TableName</td>
+                                            <td><strong>@hit.ColumnName</strong></td>
+                                            <td><span class="type-badge">@hit.DataType</span></td>
+                                            <td>
+                                                <button class="profiler-btn profiler-btn--ghost profiler-btn--sm"
+                                                        @onclick="() => OpenInProfiler(result.ConnectionName, hit.CatalogName, SelectTop(result.Provider, hit.SchemaName, hit.TableName))">
+                                                    Open in Profiler
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    }
+    else
+    {
+        <div class="profiler-readonly-notice">
+            Find which tables contain a value in their text columns, across the connections you select and
+            every accessible database on each. This scans row data, so narrow the surface with the optional
+            table and column name filters — at most @DataValueSearchService.MaxCandidateTables tables are
+            scanned per connection, returning up to @DataValueSearchService.SampleRows sample rows per match.
+        </div>
+
+        <form @onsubmit="RunDataSearchAsync">
+            <div class="emap-toolbar-row" style="margin-top:0.85rem">
+                <input class="qb-input" style="max-width:280px" placeholder="Value to find (e.g. PZ12345)…"
+                       aria-label="Value to find" @bind="_term" @bind:event="oninput" />
+                <input class="qb-input" style="max-width:200px" placeholder="Table name filter (optional)"
+                       aria-label="Table name filter" @bind="_tablePattern" @bind:event="oninput" />
+                <input class="qb-input" style="max-width:200px" placeholder="Column name filter (optional)"
+                       aria-label="Column name filter" @bind="_columnPattern" @bind:event="oninput" />
+                <button type="submit" class="profiler-btn" disabled="@(_searching || _term.Trim().Length < 1 || _selectedConnections.Count == 0)">
+                    @(_searching ? "Scanning…" : "Search data")
+                </button>
+            </div>
+            <div class="emap-toolbar-row">
+                <label class="diagram-label">Connections</label>
+                @foreach (var option in SelectorState.Options)
+                {
+                    <label class="tnode__col" style="cursor:pointer">
+                        <input type="checkbox" checked="@_selectedConnections.Contains(option.Name)"
+                               @onchange="e => ToggleConnection(option.Name, (bool)(e.Value ?? false))" />
+                        <span>@option.Name</span>
+                    </label>
+                }
+            </div>
+        </form>
+
+        @if (_searching)
+        {
+            <p class="qb-hint" style="margin-top:0.75rem">
+                <span class="spinner" aria-hidden="true"></span>Scanning row data — this can take a moment…
+            </p>
+        }
+        else if (_dataResults is not null)
+        {
+            var total = _dataResults.Sum(r => r.Matches.Count);
+            <p class="qb-hint" style="margin-top:0.75rem">
+                @total table(s) contain “@_searchedTerm” across @_dataResults.Count connection(s).
+            </p>
+
+            @foreach (var result in _dataResults)
+            {
+                <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+                    <div class="profiler-panel-header" style="cursor:default">
+                        <span>@result.ConnectionName <span class="type-badge">@result.Provider</span></span>
+                        <span class="profiler-panel-meta">
+                            @(result.Error is not null
+                                ? "unavailable"
+                                : $"{result.Matches.Count} table(s) matched · {result.TablesScanned} scanned")
+                        </span>
+                    </div>
+                    <div class="profiler-panel-body">
+                        @if (result.Error is not null)
+                        {
+                            <p class="profiler-error">@result.Error</p>
+                        }
+                        else if (result.Matches.Count == 0)
+                        {
+                            <p class="qb-hint">No table data matched.</p>
+                        }
+                        else
+                        {
+                            <table class="data-table">
+                                <thead>
+                                    <tr><th>Database</th><th>Schema</th><th>Table</th><th>Column</th><th>Sample value</th><th></th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var match in result.Matches)
+                                    {
+                                        @foreach (var sample in match.Samples)
+                                        {
+                                            var sql = DataValueSearchService.BuildLookupSql(result.Provider,
+                                                match.SchemaName, match.TableName, sample.ColumnName, _searchedTerm);
+                                            <tr>
+                                                <td>@match.CatalogName</td>
+                                                <td>@match.SchemaName</td>
+                                                <td>@match.TableName</td>
+                                                <td><strong>@sample.ColumnName</strong></td>
+                                                <td class="analyser-detail-pre" style="white-space:normal">@sample.SampleValue</td>
+                                                <td style="white-space:nowrap">
+                                                    <button class="profiler-btn profiler-btn--ghost profiler-btn--sm"
+                                                            @onclick="() => OpenInProfiler(result.ConnectionName, match.CatalogName, sql)">
+                                                        Open in Profiler
+                                                    </button>
+                                                    <button class="profiler-btn profiler-btn--ghost profiler-btn--sm"
+                                                            @onclick="() => CopySqlAsync(sql)">
+                                                        Copy SQL
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </div>
+                </div>
+            }
+        }
+    }
+</div>
+
+@code {
+    private enum Mode { Names, Data }
+    private Mode _mode = Mode.Names;
+
+    private string _term = "";
+    private string _tablePattern = "";
+    private string _columnPattern = "";
+    private string _searchedTerm = "";
+    private bool _searching;
+
+    private IReadOnlyList<ConnectionSearchResult>? _nameResults;
+    private IReadOnlyList<DataConnectionResult>? _dataResults;
+    private readonly HashSet<string> _selectedConnections = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _cts;
+
+    protected override void OnInitialized()
+    {
+        // Default: scan the currently selected connection only — the safe, cheap starting point.
+        _selectedConnections.Add(SelectorState.Current.Name);
+    }
+
+    private void SetMode(Mode mode)
+    {
+        if (_mode == mode) return;
+        _mode = mode;
+        _nameResults = null;
+        _dataResults = null;
+    }
+
+    private void ToggleConnection(string name, bool selected)
+    {
+        if (selected) _selectedConnections.Add(name);
+        else _selectedConnections.Remove(name);
+    }
+
+    private static string SelectTop(DatabaseProvider provider, string schema, string table)
+    {
+        var dialect = new SqlDialect(provider);
+        var qualified = dialect.QuoteQualifiedName(schema, table);
+        return provider == DatabaseProvider.SqlServer
+            ? $"SELECT TOP 100 * FROM {qualified};"
+            : $"SELECT * FROM {qualified} LIMIT 100;";
+    }
+
+    private void OpenInProfiler(string connectionName, string catalog, string sql)
+    {
+        // Point the app at the database where the match lives, hand the query to the Profiler, and go.
+        SelectorState.TrySetCurrent(connectionName);
+        SelectorState.SetCatalog(catalog);
+        QueryHandoff.Set(sql);
+        Nav.NavigateTo("/profiler");
+    }
+
+    private async Task CopySqlAsync(string sql)
+    {
+        try { await JS.InvokeAsync<bool>("copyToClipboard", sql); }
+        catch { /* clipboard unavailable */ }
+    }
+
+    private async Task RunNameSearchAsync()
+    {
+        var term = _term.Trim();
+        if (term.Length < 2 || _searching) return;
+        BeginSearch(term, TimeSpan.FromSeconds(60));
+        try { _nameResults = await SearchService.SearchAsync(term, _cts!.Token); }
+        catch (OperationCanceledException) { _nameResults = null; }
+        finally { _searching = false; }
+    }
+
+    private async Task RunDataSearchAsync()
+    {
+        var term = _term.Trim();
+        if (term.Length < 1 || _selectedConnections.Count == 0 || _searching) return;
+        BeginSearch(term, TimeSpan.FromSeconds(180));
+        try
+        {
+            var request = new DataValueSearchRequest(term, _selectedConnections.ToList(),
+                _tablePattern, _columnPattern);
+            _dataResults = await DataSearchService.SearchAsync(request, _cts!.Token);
+        }
+        catch (OperationCanceledException) { _dataResults = null; }
+        finally { _searching = false; }
+    }
+
+    private void BeginSearch(string term, TimeSpan timeout)
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = new CancellationTokenSource(timeout);
+        _searching = true;
+        _searchedTerm = term;
+    }
+
+    public void Dispose()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+}

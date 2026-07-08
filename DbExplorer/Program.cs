@@ -152,6 +152,9 @@ builder.Services.AddScoped<IDataBrowsingService, DataBrowsingService>();
 builder.Services.AddScoped<IQueryProfiler, QueryProfilerService>();
 builder.Services.AddScoped<IAdHocQueryService, AdHocQueryService>();
 builder.Services.AddScoped<IPersistentQueryHistoryService, PersistentQueryHistoryService>();
+builder.Services.AddScoped<MetadataSearchService>();
+builder.Services.AddScoped<DataValueSearchService>();
+builder.Services.AddScoped<QueryHandoffState>();
 
 // Audit logging
 builder.Services.AddOptions<AuditOptions>().Bind(builder.Configuration.GetSection("Audit"));

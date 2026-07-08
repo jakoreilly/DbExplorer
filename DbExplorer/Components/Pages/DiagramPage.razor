@@ -1,8 +1,7 @@
 @page "/diagram"
 @using DbExplorer.Core.Interfaces
-@using DbExplorer.Core.Models
+@using DbExplorer.Core.Layout
 @using DbExplorer.Options
-@using DbExplorer.Services
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.Extensions.Options
 @using static Microsoft.AspNetCore.Components.Web.RenderMode
@@ -15,170 +14,179 @@
 @rendermode InteractiveServer
 @implements IDisposable
 
-<PageTitle>Schema Diagram — DbExplorer</PageTitle>
+<PageTitle>Entity Map — DbExplorer</PageTitle>
 
 @if (!QBOpts.Value.Enabled)
 {
-    <div class="profiler-error">Diagram feature requires Query Builder to be enabled. Set <code>QueryBuilder:Enabled = true</code> in appsettings.json.</div>
+    <div class="profiler-error">Entity Map requires Query Builder to be enabled. Set <code>QueryBuilder:Enabled = true</code> in appsettings.json.</div>
     return;
 }
 
 <div class="profiler-page">
     <div class="profiler-page-header">
-        <h2>Schema Diagram</h2>
+        <h2>Entity Map</h2>
         <span class="profiler-connection-badge">
             @SelectorState.Current.Provider — @SelectorState.Current.Name@(SelectorState.SelectedCatalog is not null ? $" / {SelectorState.SelectedCatalog}" : "")
         </span>
     </div>
 
     <div class="profiler-readonly-notice">
-        Add tables to the canvas to see them and their foreign-key relationships. Only the
-        tables you pick are drawn, so this stays fast even on large databases.
+        A read-only map of your database: every table in the current catalog and the foreign keys
+        that connect them. Use the schema filter or search to focus, and click a table to expand its columns.
     </div>
 
-    <div class="diagram-filters">
-        <label class="diagram-label">Schema</label>
-        @if (_schemas.Count == 0)
-        {
-            <span class="qb-hint">Loading schemas…</span>
-        }
-        else
-        {
-            <select class="qb-select" @bind="_selectedSchema" @bind:after="OnSchemaChangedAsync">
-                <option value="">— select schema —</option>
-                @foreach (var s in _schemas)
-                {
-                    <option value="@s.SchemaName">@s.SchemaName</option>
-                }
-            </select>
-        }
-        @if (!string.IsNullOrWhiteSpace(_selectedSchema) && !_isLoading)
-        {
-            <span class="diagram-hint">@_placedCount / @_tables.Count table(s) on canvas</span>
-        }
-    </div>
-
-    @if (string.IsNullOrWhiteSpace(_selectedSchema))
+    @if (_isLoading)
     {
         <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
             <div class="profiler-panel-body">
-                <p class="profiler-empty">Select a schema to begin.</p>
+                <p class="qb-hint"><span class="spinner" aria-hidden="true"></span>Reading tables and relationships…</p>
             </div>
         </div>
     }
-    else if (_isLoading)
+    else if (_allObjects.Count == 0)
     {
-        <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
-            <div class="profiler-panel-body">
-                <p class="qb-hint"><span class="spinner" aria-hidden="true"></span>Loading schema…</p>
-            </div>
-        </div>
-    }
-    else if (_tables.Count == 0)
-    {
-        <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
-            <div class="profiler-panel-body">
-                <p class="profiler-empty">No tables found in this schema.</p>
-            </div>
+        <div class="empty-state" style="margin-top:0.75rem">
+            No tables found in this catalog. Check that the selected database and your permissions are correct.
         </div>
     }
     else
     {
-        @* ── Table palette ── *@
-        <div class="diagram-palette">
-            <input class="qb-select diagram-palette-filter" placeholder="Filter tables…" @bind="_tableFilter" @bind:event="oninput" />
-            <button class="profiler-btn" @onclick="AddAllAsync" disabled="@(_tables.Count > AddAllLimit)">
-                Add all (@_tables.Count)
-            </button>
-            <button class="profiler-btn profiler-btn--ghost" @onclick="ClearCanvas" disabled="@(_placedCount == 0)">Clear canvas</button>
-            @if (_tables.Count > AddAllLimit)
-            {
-                <span class="diagram-hint">Too many tables to add at once — pick individually or filter first.</span>
-            }
-        </div>
-        <div class="diagram-chip-list">
-            @foreach (var t in FilteredTables)
-            {
-                var placed = _nodes.ContainsKey(t.ObjectName);
-                <button class="diagram-chip @(placed ? "diagram-chip--placed" : "")"
-                        @onclick="() => ToggleTableAsync(t.ObjectName)"
-                        title="@(placed ? "Remove from canvas" : "Add to canvas")">
-                    <span class="diagram-chip-mark">@(placed ? "✓" : "+")</span>@t.ObjectName
-                </button>
-            }
+        <div class="emap-toolbar">
+            <div class="emap-toolbar-row">
+                <input class="qb-input" style="max-width:220px" placeholder="Search tables (all schemas)…" aria-label="Search tables"
+                       @bind="_searchTerm" @bind:event="oninput" @bind:after="OnSearchChanged" />
+                @if (_focusRootId is not null)
+                {
+                    <div class="emap-toolbar-group">
+                        <span class="diagram-hint">Focused on @_focusRootId</span>
+                        <select class="qb-select" style="max-width:90px" @bind="_focusHops" @bind:after="RebuildMap">
+                            <option value="1">1 hop</option>
+                            <option value="2">2 hops</option>
+                            <option value="3">3 hops</option>
+                        </select>
+                        <button class="profiler-btn profiler-btn--ghost profiler-btn--sm" @onclick="ClearFocus">Show all</button>
+                    </div>
+                }
+                <span class="diagram-hint" style="margin-left:auto">@_visibleTableCount / @_allObjects.Count table(s) shown</span>
+            </div>
+            <div class="emap-toolbar-row">
+                <label class="diagram-label">Schemas</label>
+                @foreach (var schema in _schemaNames)
+                {
+                    <label class="tnode__col" style="cursor:pointer">
+                        <input type="checkbox" checked="@_selectedSchemas.Contains(schema)"
+                               @onchange="e => ToggleSchema(schema, (bool)(e.Value ?? false))" />
+                        <span>@schema</span>
+                    </label>
+                }
+            </div>
         </div>
 
-        @* ── Canvas ── *@
-        <div class="diagram-canvas-area" style="margin-top:0.75rem">
-            @if (_diagramReady && _blazorDiagram is not null)
-            {
-                <CascadingValue Value="_blazorDiagram">
-                    <DiagramCanvas @key="_blazorDiagram"></DiagramCanvas>
-                </CascadingValue>
-            }
-            else
-            {
-                <div class="qb-hint">Waiting for the diagram canvas to initialize…</div>
-            }
-        </div>
-        @if (_placedCount == 0)
+        @if (_tooManyTables)
         {
-            <p class="diagram-hint" style="margin-top:0.5rem">Canvas is empty — click a table chip above, or a relationship below, to draw it. Drag a table's header to reposition it.</p>
+            <div class="empty-state" style="margin-top:0.75rem">
+                This selection has @_effectiveTables.Count tables — too many to draw at once. Narrow the
+                search, pick fewer schemas, or focus a table to map its neighborhood.
+            </div>
         }
-
-        @* ── FK relationship list ── *@
-        @if (_allForeignKeys.Count > 0)
+        else if (_effectiveTables.Count == 0)
         {
-            <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
-                <div class="profiler-panel-header" style="cursor:default">
-                    <span>Foreign Key Relationships</span>
-                    <span class="profiler-panel-meta">@_allForeignKeys.Count relationship(s) · click to draw</span>
-                </div>
-                <div class="profiler-panel-body">
-                    <div class="diagram-fk-grid">
-                        @foreach (var fk in _allForeignKeys)
-                        {
-                            var bothPlaced = _nodes.ContainsKey(fk.TableName) && _nodes.ContainsKey(fk.ReferencedTable);
-                            <div class="diagram-fk-row diagram-fk-row--clickable @(bothPlaced ? "diagram-fk-row--active" : "")"
-                                 @onclick="() => AddFkEndpointsAsync(fk)"
-                                 title="Add both tables to the canvas">
-                                <span class="diagram-fk-label">@fk.SchemaName.@fk.TableName.<strong>@fk.ColumnName</strong></span>
-                                <span class="diagram-fk-arrow">→</span>
-                                <span class="diagram-fk-label">@fk.ReferencedSchema.@fk.ReferencedTable.<strong>@fk.ReferencedColumn</strong></span>
-                                @if (!string.IsNullOrEmpty(fk.ConstraintName))
-                                {
-                                    <span class="diagram-fk-constraint">@fk.ConstraintName</span>
-                                }
-                            </div>
-                        }
+            <div class="empty-state" style="margin-top:0.75rem">
+                @(string.IsNullOrWhiteSpace(_searchTerm)
+                    ? "No schemas selected — tick one or more schemas above to draw the map."
+                    : "No tables match your search.")
+            </div>
+        }
+        else
+        {
+            <div class="diagram-canvas-area" style="margin-top:0.75rem">
+                @if (_diagramReady && _blazorDiagram is not null)
+                {
+                    <CascadingValue Value="_blazorDiagram">
+                        <DiagramCanvas @key="_blazorDiagram"></DiagramCanvas>
+                    </CascadingValue>
+                }
+                else
+                {
+                    <div class="qb-hint">Waiting for the diagram canvas to initialize…</div>
+                }
+            </div>
+
+            @if (_linksSuppressed)
+            {
+                <p class="diagram-hint" style="margin-top:0.5rem">
+                    @_effectiveEdgeCount relationships is more than can be drawn clearly. Links are hidden;
+                    use the relationship list below or Focus mode to explore.
+                </p>
+            }
+            else if (_effectiveEdgeCount == 0)
+            {
+                <p class="diagram-hint" style="margin-top:0.5rem">
+                    No foreign keys were found, so tables are shown without connecting lines. On MySQL,
+                    tables using the MyISAM engine do not support foreign keys — only InnoDB relationships appear here.
+                </p>
+            }
+
+            @* ── FK relationship list (fallback source of truth if a link fails to draw) ── *@
+            @if (_effectiveFks.Count > 0)
+            {
+                <div class="profiler-panel profiler-panel--open" style="margin-top:0.75rem">
+                    <div class="profiler-panel-header" style="cursor:default">
+                        <span>Foreign Key Relationships</span>
+                        <span class="profiler-panel-meta">@_effectiveFks.Count relationship(s) · click to focus</span>
+                    </div>
+                    <div class="profiler-panel-body">
+                        <div class="diagram-fk-grid">
+                            @foreach (var fk in _effectiveFks)
+                            {
+                                <div class="diagram-fk-row diagram-fk-row--clickable"
+                                     @onclick="() => FocusOn(Qualify(fk.SchemaName, fk.TableName))"
+                                     title="Focus the map on this relationship">
+                                    <span class="diagram-fk-label">@fk.SchemaName.@fk.TableName.<strong>@fk.ColumnName</strong></span>
+                                    <span class="diagram-fk-arrow">→</span>
+                                    <span class="diagram-fk-label">@fk.ReferencedSchema.@fk.ReferencedTable.<strong>@fk.ReferencedColumn</strong></span>
+                                    @if (!string.IsNullOrEmpty(fk.ConstraintName))
+                                    {
+                                        <span class="diagram-fk-constraint">@fk.ConstraintName</span>
+                                    }
+                                </div>
+                            }
+                        </div>
                     </div>
                 </div>
-            </div>
+            }
         }
     }
 </div>
 
 @code {
-    private List<SchemaInfo> _schemas = new();
-    private string _selectedSchema = "";
-    private List<DatabaseObjectInfo> _tables = new();
-    private List<ForeignKeyInfo> _allForeignKeys = new();
-    private readonly Dictionary<string, TableDiagramNode> _nodes = new(StringComparer.OrdinalIgnoreCase);
-    private string _tableFilter = "";
-    private bool _isLoading;
+    private const int MaxAutoNodes = 150;
+    private const int MaxLinks = 400;
+    private const double NodeWidth = 220;
+    private const double NodeHeight = 40;
 
+    private List<DatabaseObjectInfo> _allObjects = new();
+    private List<ForeignKeyInfo> _allFks = new();
+    private List<string> _schemaNames = new();
+    private readonly HashSet<string> _selectedSchemas = new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly Dictionary<string, EntityMapNode> _nodes = new(StringComparer.OrdinalIgnoreCase);
+    private List<DatabaseObjectInfo> _effectiveTables = new();
+    private List<ForeignKeyInfo> _effectiveFks = new();
+    private int _effectiveEdgeCount;
+    private bool _linksSuppressed;
+    private bool _tooManyTables;
+    private int _visibleTableCount;
+
+    private string _searchTerm = "";
+    private CancellationTokenSource? _searchCts;
+    private string? _focusRootId;
+    private int _focusHops = 1;
+
+    private bool _isLoading = true;
     private BlazorDiagram? _blazorDiagram;
     private bool _diagramReady;
     private int _dbGeneration;
-
-    private const int AddAllLimit = 40;
-
-    private int _placedCount => _nodes.Count;
-
-    private IEnumerable<DatabaseObjectInfo> FilteredTables =>
-        string.IsNullOrWhiteSpace(_tableFilter)
-            ? _tables
-            : _tables.Where(t => t.ObjectName.Contains(_tableFilter, StringComparison.OrdinalIgnoreCase));
 
     protected override void OnInitialized()
     {
@@ -187,46 +195,59 @@
 
     protected override async Task OnInitializedAsync()
     {
-        _schemas = (await Metadata.GetSchemasAsync())
-            .Where(s => !string.IsNullOrWhiteSpace(s.SchemaName))
-            .Select(s => new SchemaInfo(s.SchemaName.Trim()))
-            .ToList();
+        await LoadCatalogAsync();
+        // The first render (and OnAfterRender's initial RebuildMap) usually happens while the
+        // catalog is still loading; rebuild again now that the data is here.
+        if (_diagramReady)
+            RebuildMap();
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    protected override void OnAfterRender(bool firstRender)
     {
-        if (!firstRender)
-            return;
-
+        if (!firstRender) return;
         _diagramReady = true;
         InitDiagram();
-        await EnsureSelectedSchemaAsync();
+        RebuildMap();
         StateHasChanged();
     }
 
-    private async Task EnsureSelectedSchemaAsync()
+    public void Dispose()
     {
-        if (!string.IsNullOrWhiteSpace(_selectedSchema) || _schemas.Count == 0)
-            return;
+        SelectorState.OnChange -= HandleDatabaseChanged;
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        DiagramInterop.OnEntityNodeToggle = null;
+        DiagramInterop.OnEntityNodeFocus = null;
+    }
 
-        var currentCatalog = SelectorState.SelectedCatalog;
-        if (string.IsNullOrWhiteSpace(currentCatalog))
-            currentCatalog = await Metadata.GetCurrentCatalogAsync();
-
-        if (!string.IsNullOrWhiteSpace(currentCatalog) &&
-            _schemas.Any(s => string.Equals(s.SchemaName, currentCatalog, StringComparison.OrdinalIgnoreCase)))
+    private async Task LoadCatalogAsync()
+    {
+        _isLoading = true;
+        StateHasChanged();
+        try
         {
-            _selectedSchema = currentCatalog!.Trim();
+            _allObjects = (await Metadata.GetObjectsAsync())
+                .Where(o => o.ObjectType is "TABLE" or "VIEW")
+                .OrderBy(o => o.SchemaName).ThenBy(o => o.ObjectName)
+                .ToList();
+
+            _allFks = (await Metadata.GetCatalogForeignKeysAsync()).ToList();
+
+            _schemaNames = _allObjects.Select(o => o.SchemaName).Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(s => s, StringComparer.OrdinalIgnoreCase).ToList();
+
+            _selectedSchemas.Clear();
+            var defaultSchema = _allObjects
+                .GroupBy(o => o.SchemaName, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(g => g.Count())
+                .Select(g => g.Key)
+                .FirstOrDefault();
+            if (defaultSchema is not null)
+                _selectedSchemas.Add(defaultSchema);
         }
-        else if (_schemas.Count > 0)
+        finally
         {
-            _selectedSchema = _schemas[0].SchemaName;
-        }
-
-        if (!string.IsNullOrWhiteSpace(_selectedSchema))
-        {
-            await OnSchemaChangedAsync();
-            StateHasChanged();
+            _isLoading = false;
         }
     }
 
@@ -235,163 +256,200 @@
         var gen = Interlocked.Increment(ref _dbGeneration);
         _ = InvokeAsync(async () =>
         {
-            _selectedSchema = "";
-            _tables = new();
-            _allForeignKeys = new();
-            _tableFilter = "";
-            InitDiagram();
-
-            var schemas = (await Metadata.GetSchemasAsync()).ToList();
+            _searchTerm = "";
+            _focusRootId = null;
+            await LoadCatalogAsync();
             if (gen != _dbGeneration) return;
 
-            _schemas = schemas;
+            InitDiagram();
+            RebuildMap();
             StateHasChanged();
         });
     }
 
-    public void Dispose()
-    {
-        SelectorState.OnChange -= HandleDatabaseChanged;
-        DiagramInterop.OnNodeRemove = null;
-        DiagramInterop.OnGraphChanged = null;
-    }
-
     private void InitDiagram()
     {
-        _blazorDiagram = new BlazorDiagram();
-        _blazorDiagram.RegisterComponent<TableDiagramNode, TableNodeWidget>();
+        // Created once per page; RebuildMap clears and repopulates the layers in place.
+        // Recreating the diagram remounts the whole canvas, which is far too heavy to
+        // do per search keystroke and orphans nodes mid-interaction.
+        if (_blazorDiagram is null)
+        {
+            _blazorDiagram = new BlazorDiagram();
+            _blazorDiagram.RegisterComponent<EntityMapNode, EntityMapNodeWidget>();
+        }
         _nodes.Clear();
 
-        // The node widget's ✕ button raises OnNodeRemove; wire it to remove the table.
-        DiagramInterop.OnNodeRemove = node =>
+        DiagramInterop.OnEntityNodeToggle = node => _ = InvokeAsync(() => ToggleNodeAsync(node));
+        DiagramInterop.OnEntityNodeFocus = node => _ = InvokeAsync(() =>
         {
-            if (node is TableDiagramNode t)
-                _ = InvokeAsync(() => { RemoveTableNode(t.TableName); StateHasChanged(); });
-        };
-        DiagramInterop.OnGraphChanged = null;
+            FocusOn(node.QualifiedName);
+            StateHasChanged();
+        });
     }
 
-    private async Task OnSchemaChangedAsync()
+    private static string Qualify(string schema, string table) => $"{schema}.{table}";
+
+    private void ToggleSchema(string schema, bool selected)
     {
-        _tables = new();
-        _allForeignKeys = new();
-        _tableFilter = "";
-        InitDiagram();
-        StateHasChanged();
+        if (selected) _selectedSchemas.Add(schema);
+        else _selectedSchemas.Remove(schema);
+        _focusRootId = null;
+        RebuildMap();
+    }
 
-        if (string.IsNullOrWhiteSpace(_selectedSchema)) return;
-        _selectedSchema = _selectedSchema.Trim();
+    private void OnSearchChanged()
+    {
+        // Searching takes over from focus mode: the search term defines the visible set.
+        if (!string.IsNullOrWhiteSpace(_searchTerm))
+            _focusRootId = null;
 
-        _isLoading = true;
-        StateHasChanged();
-        try
+        // Debounce: rebuilding the map per keystroke is too heavy for large catalogs.
+        _searchCts?.Cancel();
+        var cts = _searchCts = new CancellationTokenSource();
+        _ = DebouncedRebuildAsync(cts.Token);
+    }
+
+    private async Task DebouncedRebuildAsync(CancellationToken ct)
+    {
+        try { await Task.Delay(300, ct); }
+        catch (TaskCanceledException) { return; }
+        await InvokeAsync(() =>
         {
-            // Fast: only the table list and the FK map — no per-table column round-trips.
-            _tables = (await Metadata.GetObjectsAsync(_selectedSchema))
-                .Where(o => o.ObjectType is "TABLE" or "VIEW")
-                .OrderBy(t => t.ObjectName)
-                .ToList();
-
-            _allForeignKeys = (await Metadata.GetAllForeignKeysAsync(_selectedSchema)).ToList();
-        }
-        finally
-        {
-            _isLoading = false;
-        }
-
-        StateHasChanged();
+            RebuildMap();
+            StateHasChanged();
+        });
     }
 
-    private async Task ToggleTableAsync(string tableName)
+    private void FocusOn(string qualifiedId)
     {
-        if (_nodes.ContainsKey(tableName))
-            RemoveTableNode(tableName);
-        else
-            await AddTableAsync(tableName);
+        _focusRootId = qualifiedId;
+        _searchTerm = "";
+        RebuildMap();
     }
 
-    private async Task AddTableAsync(string tableName)
+    private void ClearFocus()
     {
-        if (_blazorDiagram is null || _nodes.ContainsKey(tableName)) return;
-
-        var i = _nodes.Count;
-        const int cols = 4;
-        var x = (i % cols) * 280 + 40;
-        var y = (i / cols) * 250 + 40;
-
-        var node = new TableDiagramNode($"t{i}", new Point(x, y))
-        {
-            SchemaName = _selectedSchema,
-            TableName = tableName
-        };
-
-        var columns = (await Metadata.GetColumnsAsync(_selectedSchema, tableName)).ToList();
-        node.SetColumns(columns);
-
-        _blazorDiagram.Nodes.Add(node);
-        _nodes[tableName] = node;
-
-        RedrawLinks();
-        StateHasChanged();
-    }
-
-    private void RemoveTableNode(string tableName)
-    {
-        if (_blazorDiagram is null || !_nodes.TryGetValue(tableName, out var node)) return;
-        _blazorDiagram.Nodes.Remove(node);
-        _nodes.Remove(tableName);
-        RedrawLinks();
-    }
-
-    private async Task AddFkEndpointsAsync(ForeignKeyInfo fk)
-    {
-        // Both endpoint tables must live in the selected schema to appear on the canvas.
-        if (_tables.Any(t => string.Equals(t.ObjectName, fk.TableName, StringComparison.OrdinalIgnoreCase)))
-            await AddTableAsync(fk.TableName);
-        if (_tables.Any(t => string.Equals(t.ObjectName, fk.ReferencedTable, StringComparison.OrdinalIgnoreCase)))
-            await AddTableAsync(fk.ReferencedTable);
-    }
-
-    private async Task AddAllAsync()
-    {
-        if (_tables.Count > AddAllLimit) return;
-        foreach (var t in _tables)
-            await AddTableAsync(t.ObjectName);
-    }
-
-    private void ClearCanvas()
-    {
-        InitDiagram();
-        StateHasChanged();
+        _focusRootId = null;
+        RebuildMap();
     }
 
     /// <summary>
-    /// Rebuilds all FK edges between tables currently on the canvas. Links connect the
-    /// child table's FK column port to the referenced table's key column port.
+    /// Recomputes which tables/edges are in scope (schema filter or focus neighborhood),
+    /// applies the large-schema caps, lays out the surviving nodes, and redraws the canvas.
     /// </summary>
-    private void RedrawLinks()
+    private void RebuildMap()
     {
         if (_blazorDiagram is null) return;
 
-        foreach (var link in _blazorDiagram.Links.ToList())
-            _blazorDiagram.Links.Remove(link);
+        var allEdges = _allFks
+            .Select(fk => new LayoutEdge(Qualify(fk.SchemaName, fk.TableName), Qualify(fk.ReferencedSchema, fk.ReferencedTable)))
+            .ToList();
 
-        foreach (var fk in _allForeignKeys)
+        var term = _searchTerm.Trim();
+        List<DatabaseObjectInfo> tables;
+        if (_focusRootId is not null)
         {
-            if (!_nodes.TryGetValue(fk.TableName, out var child)) continue;
-            if (!_nodes.TryGetValue(fk.ReferencedTable, out var parent)) continue;
-
-            var srcPort = child.GetPortForColumn(fk.ColumnName) ?? child.GetLeftPortForColumn(fk.ColumnName);
-            var tgtPort = parent.GetLeftPortForColumn(fk.ReferencedColumn) ?? parent.GetPortForColumn(fk.ReferencedColumn);
-            if (srcPort is null || tgtPort is null) continue;
-
-            var link = new LinkModel(new SinglePortAnchor(srcPort), new SinglePortAnchor(tgtPort))
-            {
-                TargetMarker = LinkMarker.Arrow
-            };
-            _blazorDiagram.Links.Add(link);
+            var neighborhood = EntityMapGraph.Neighborhood(_focusRootId, _focusHops, allEdges);
+            tables = _allObjects.Where(o => neighborhood.Contains(Qualify(o.SchemaName, o.ObjectName))).ToList();
+        }
+        else if (term.Length > 0)
+        {
+            // Search filters the visible set across ALL schemas, ignoring the schema checkboxes.
+            tables = _allObjects.Where(o => o.ObjectName.Contains(term, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        else
+        {
+            tables = _allObjects.Where(o => _selectedSchemas.Contains(o.SchemaName)).ToList();
         }
 
+        _effectiveTables = tables;
+        _tooManyTables = tables.Count > MaxAutoNodes;
+        _visibleTableCount = _tooManyTables ? 0 : tables.Count;
+
+        _blazorDiagram.Links.Clear();
+        _blazorDiagram.Nodes.Clear();
+        _nodes.Clear();
+        if (_tooManyTables)
+        {
+            _effectiveFks = new();
+            _effectiveEdgeCount = 0;
+            _linksSuppressed = false;
+            return;
+        }
+
+        var tableIds = tables.Select(t => Qualify(t.SchemaName, t.ObjectName)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _effectiveFks = _allFks
+            .Where(fk => tableIds.Contains(Qualify(fk.SchemaName, fk.TableName)) &&
+                         tableIds.Contains(Qualify(fk.ReferencedSchema, fk.ReferencedTable)))
+            .ToList();
+        _effectiveEdgeCount = _effectiveFks.Count;
+        _linksSuppressed = _effectiveEdgeCount > MaxLinks;
+
+        var edges = _effectiveFks
+            .Select(fk => new LayoutEdge(Qualify(fk.SchemaName, fk.TableName), Qualify(fk.ReferencedSchema, fk.ReferencedTable)))
+            .ToList();
+        var layoutNodes = tables.Select(t => new LayoutNode(Qualify(t.SchemaName, t.ObjectName), NodeWidth, NodeHeight)).ToList();
+        var layout = EntityMapLayout.Compute(layoutNodes, edges);
+
+        foreach (var table in tables)
+        {
+            var id = Qualify(table.SchemaName, table.ObjectName);
+            var (x, y) = layout.Positions.TryGetValue(id, out var p) ? p : (0, 0);
+
+            var node = new EntityMapNode(new Point(x, y))
+            {
+                SchemaName = table.SchemaName,
+                TableName = table.ObjectName,
+                InDegree = edges.Count(e => string.Equals(e.TargetId, id, StringComparison.OrdinalIgnoreCase)),
+                OutDegree = edges.Count(e => string.Equals(e.SourceId, id, StringComparison.OrdinalIgnoreCase)),
+            };
+            node.FkColumns = _effectiveFks
+                .Where(fk => string.Equals(Qualify(fk.SchemaName, fk.TableName), id, StringComparison.OrdinalIgnoreCase))
+                .Select(fk => fk.ColumnName)
+                .Concat(_effectiveFks
+                    .Where(fk => string.Equals(Qualify(fk.ReferencedSchema, fk.ReferencedTable), id, StringComparison.OrdinalIgnoreCase))
+                    .Select(fk => fk.ReferencedColumn))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            _blazorDiagram.Nodes.Add(node);
+            _nodes[id] = node;
+        }
+
+        if (!_linksSuppressed)
+        {
+            foreach (var fk in _effectiveFks)
+            {
+                if (!_nodes.TryGetValue(Qualify(fk.SchemaName, fk.TableName), out var child)) continue;
+                if (!_nodes.TryGetValue(Qualify(fk.ReferencedSchema, fk.ReferencedTable), out var parent)) continue;
+
+                var link = new LinkModel(new SinglePortAnchor(child.RightPort), new SinglePortAnchor(parent.LeftPort))
+                {
+                    TargetMarker = LinkMarker.Arrow
+                };
+                _blazorDiagram.Links.Add(link);
+            }
+        }
+
+        // In focus mode, make the root table easy to spot.
+        if (_focusRootId is not null && _nodes.TryGetValue(_focusRootId, out var root))
+            root.Highlighted = true;
+
         _blazorDiagram.Refresh();
+    }
+
+    private async Task ToggleNodeAsync(EntityMapNode node)
+    {
+        node.IsExpanded = !node.IsExpanded;
+        if (node.IsExpanded && node.Columns is null)
+        {
+            node.IsLoadingColumns = true;
+            node.Refresh();
+            StateHasChanged();
+
+            node.Columns = (await Metadata.GetColumnsAsync(node.SchemaName, node.TableName)).ToList();
+            node.IsLoadingColumns = false;
+        }
+        node.Refresh();
+        StateHasChanged();
     }
 }

@@ -600,8 +600,12 @@ public sealed class MetadataService(
         return result;
     }
 
-    public async Task<IReadOnlyList<ForeignKeyInfo>> GetAllForeignKeysAsync(
+    public Task<IReadOnlyList<ForeignKeyInfo>> GetAllForeignKeysAsync(
         string schemaName, CancellationToken ct = default)
+        => GetOrQueryAsync("allfks", schemaName, () => QueryAllForeignKeysAsync(schemaName, ct));
+
+    private async Task<IReadOnlyList<ForeignKeyInfo>> QueryAllForeignKeysAsync(
+        string schemaName, CancellationToken ct)
     {
         dialect.ThrowIfInvalidIdentifier(schemaName, nameof(schemaName));
 
@@ -674,6 +678,98 @@ public sealed class MetadataService(
             new CommandDefinition(
                 sql,
                 new { schema = schemaName },
+                commandTimeout: TimeoutSeconds,
+                cancellationToken: ct));
+
+        return rows.Select(r => new ForeignKeyInfo(
+            (string)r.ConstraintName,
+            (string)r.SchemaName,
+            (string)r.TableName,
+            (string)r.ColumnName,
+            (string)r.ReferencedSchema,
+            (string)r.ReferencedTable,
+            (string)r.ReferencedColumn)).ToList();
+    }
+
+    public Task<IReadOnlyList<ForeignKeyInfo>> GetCatalogForeignKeysAsync(CancellationToken ct = default)
+        => GetOrQueryAsync("catalogfks", "", () => QueryCatalogForeignKeysAsync(ct));
+
+    private async Task<IReadOnlyList<ForeignKeyInfo>> QueryCatalogForeignKeysAsync(CancellationToken ct)
+    {
+        await using var conn = factory.Create();
+        await conn.OpenAsync(ct);
+
+        var sql = factory.Provider switch
+        {
+            DatabaseProvider.SqlServer =>
+                """
+                SELECT
+                    fk.name AS ConstraintName,
+                    ps.name AS SchemaName,
+                    pt.name AS TableName,
+                    pc.name AS ColumnName,
+                    rs.name AS ReferencedSchema,
+                    rt.name AS ReferencedTable,
+                    rc.name AS ReferencedColumn
+                FROM sys.foreign_keys fk
+                JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+                JOIN sys.tables  pt ON pt.object_id = fk.parent_object_id
+                JOIN sys.schemas ps ON ps.schema_id = pt.schema_id
+                JOIN sys.columns pc ON pc.object_id = fk.parent_object_id AND pc.column_id = fkc.parent_column_id
+                JOIN sys.tables  rt ON rt.object_id = fk.referenced_object_id
+                JOIN sys.schemas rs ON rs.schema_id = rt.schema_id
+                JOIN sys.columns rc ON rc.object_id = fk.referenced_object_id AND rc.column_id = fkc.referenced_column_id
+                ORDER BY ps.name, pt.name, fk.name, fkc.constraint_column_id
+                """,
+            DatabaseProvider.PostgreSql =>
+                """
+                SELECT
+                    con.conname          AS "ConstraintName",
+                    nsc.nspname          AS "SchemaName",
+                    child.relname        AS "TableName",
+                    ac.attname           AS "ColumnName",
+                    nsp.nspname          AS "ReferencedSchema",
+                    parent.relname       AS "ReferencedTable",
+                    ap.attname           AS "ReferencedColumn"
+                FROM pg_constraint con
+                JOIN LATERAL unnest(con.conkey, con.confkey) WITH ORDINALITY
+                     AS cols(child_attnum, parent_attnum, ord) ON TRUE
+                JOIN pg_class child      ON child.oid  = con.conrelid
+                JOIN pg_namespace nsc    ON nsc.oid    = child.relnamespace
+                JOIN pg_class parent     ON parent.oid = con.confrelid
+                JOIN pg_namespace nsp    ON nsp.oid    = parent.relnamespace
+                JOIN pg_attribute ac     ON ac.attrelid = con.conrelid  AND ac.attnum = cols.child_attnum
+                JOIN pg_attribute ap     ON ap.attrelid = con.confrelid AND ap.attnum = cols.parent_attnum
+                WHERE con.contype = 'f'
+                  AND nsc.nspname NOT IN ('pg_catalog', 'information_schema')
+                  AND nsc.nspname NOT LIKE 'pg_toast%'
+                ORDER BY nsc.nspname, child.relname, con.conname, cols.ord
+                """,
+            DatabaseProvider.MySql =>
+                """
+                SELECT
+                    kcu.constraint_name          AS ConstraintName,
+                    kcu.table_schema             AS SchemaName,
+                    kcu.table_name               AS TableName,
+                    kcu.column_name              AS ColumnName,
+                    kcu.referenced_table_schema  AS ReferencedSchema,
+                    kcu.referenced_table_name    AS ReferencedTable,
+                    kcu.referenced_column_name   AS ReferencedColumn
+                FROM information_schema.referential_constraints rc
+                JOIN information_schema.key_column_usage kcu
+                  ON kcu.constraint_schema = rc.constraint_schema
+                 AND kcu.constraint_name   = rc.constraint_name
+                 AND kcu.table_name        = rc.table_name
+                WHERE kcu.table_schema = DATABASE()
+                  AND kcu.referenced_table_name IS NOT NULL
+                ORDER BY kcu.table_name, kcu.constraint_name, kcu.ordinal_position
+                """,
+            _ => throw new InvalidOperationException($"Unsupported provider '{factory.Provider}'.")
+        };
+
+        var rows = await conn.QueryAsync(
+            new CommandDefinition(
+                sql,
                 commandTimeout: TimeoutSeconds,
                 cancellationToken: ct));
 

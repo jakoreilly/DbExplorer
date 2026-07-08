@@ -47,6 +47,13 @@ public interface IMetadataService
     /// in a single round-trip (used by the schema diagram).
     /// </summary>
     Task<IReadOnlyList<ForeignKeyInfo>> GetAllForeignKeysAsync(string schemaName, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns every foreign key in the current catalog (all user schemas) in a single
+    /// round-trip. Used by the Entity Map. For MySQL "catalog" means the current
+    /// DATABASE(); MyISAM tables have no FK metadata and simply do not appear.
+    /// </summary>
+    Task<IReadOnlyList<ForeignKeyInfo>> GetCatalogForeignKeysAsync(CancellationToken ct = default);
     Task<IReadOnlyList<TriggerInfo>> GetTriggersAsync(string schemaName, string tableName, CancellationToken ct = default);
     Task<ObjectDefinition?> GetObjectDefinitionAsync(string schemaName, string objectName, CancellationToken ct = default);
     Task<long> GetRowCountAsync(string schemaName, string tableName, CancellationToken ct = default);
