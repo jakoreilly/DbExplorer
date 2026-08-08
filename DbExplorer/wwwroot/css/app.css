@@ -67,6 +67,12 @@
     --radius-pill: 999px;
     --speed: 0.15s;
 
+    /* Shared transition combos, reused across controls/rows/buttons */
+    --transition-colors: background var(--speed) ease, color var(--speed) ease, border-color var(--speed) ease;
+    --transition-bg-color: background var(--speed) ease, color var(--speed) ease;
+    --transition-bg-border: background var(--speed) ease, border-color var(--speed) ease;
+    --transition-border-shadow: border-color var(--speed) ease, box-shadow var(--speed) ease;
+
     /* Type scale */
     --font-ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", sans-serif;
     --font-mono: "Cascadia Code", "Fira Code", "JetBrains Mono", Consolas, monospace;
@@ -178,10 +184,18 @@ kbd {
     from { opacity: 0; transform: translateY(3px); }
     to   { opacity: 1; transform: none; }
 }
+@keyframes de-fade-out {
+    from { opacity: 1; transform: none; }
+    to   { opacity: 0; transform: translateY(3px); }
+}
 @keyframes de-spin { to { transform: rotate(360deg); } }
 @keyframes de-toast-in {
     from { opacity: 0; transform: translateY(8px) scale(0.97); }
     to   { opacity: 1; transform: none; }
+}
+@keyframes de-toast-out {
+    from { opacity: 1; transform: none; }
+    to   { opacity: 0; transform: translateY(8px) scale(0.97); }
 }
 
 /* ── Layout ───────────────────────────────────────────────────────────────── */
@@ -329,7 +343,7 @@ select.qb-select,
     cursor: pointer;
     color: var(--muted);
     font-size: 0.95rem;
-    transition: background var(--speed) ease, color var(--speed) ease, border-color var(--speed) ease;
+    transition: var(--transition-colors);
 }
 .icon-btn:hover { background: var(--hover-bg); color: var(--primary); }
 .icon-btn svg { width: 17px; height: 17px; display: block; }
@@ -410,7 +424,7 @@ select.qb-select,
     border-radius: var(--radius-sm);
     color: var(--text);
     font-family: inherit;
-    transition: background var(--speed) ease, color var(--speed) ease;
+    transition: var(--transition-bg-color);
     min-width: 0;
 }
 .object-node:hover, .object-node.selected { background: var(--hover-bg); color: var(--primary); }
@@ -487,7 +501,7 @@ select.qb-select,
     color: var(--muted);
     font-family: inherit;
     border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-    transition: color var(--speed) ease, background var(--speed) ease, border-color var(--speed) ease;
+    transition: var(--transition-colors);
 }
 .tab:hover { color: var(--text); background: var(--hover-bg); }
 .tab.active { border-bottom-color: var(--primary); color: var(--primary); font-weight: 600; }
@@ -579,7 +593,7 @@ tr:hover td { background: var(--row-hover); }
     cursor: pointer;
     font-size: 0.84rem;
     font-family: inherit;
-    transition: background var(--speed) ease, border-color var(--speed) ease, color var(--speed) ease;
+    transition: var(--transition-colors);
 }
 .grid-toolbar button:hover:not(:disabled) { background: var(--hover-bg); border-color: var(--primary); color: var(--primary); }
 .grid-toolbar button:disabled { opacity: 0.45; cursor: default; }
@@ -633,6 +647,7 @@ tr:hover td { background: var(--row-hover); }
     animation: de-toast-in 0.18s ease-out;
     pointer-events: none;
 }
+.copy-toast--closing { animation: de-toast-out var(--speed) ease-out forwards; }
 
 /* Row expander */
 .row-detail-col { width: 2rem; padding: 0.25rem 0.4rem; text-align: center; }
@@ -652,6 +667,7 @@ tr:hover td { background: var(--row-hover); }
 
 .row-detail-row td.row-detail-cell { padding: 0; background: var(--surface-elevated); border-bottom: 2px solid var(--border-strong); }
 .row-detail-panel { padding: 0.85rem 1.1rem; animation: de-fade-in var(--speed) ease-out; }
+.row-detail-panel--closing { animation: de-fade-out var(--speed) ease-out forwards; }
 .row-detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; font-size: 0.9rem; }
 .row-detail-header button { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1rem; line-height: 1; border-radius: var(--radius-sm); }
 .row-detail-header button:hover { color: var(--primary); }
@@ -689,6 +705,7 @@ tr:hover td { background: var(--row-hover); }
     border-radius: var(--radius-md);
     color: var(--error-text);
     font-size: 0.88rem;
+    animation: de-fade-in var(--speed) ease-out;
 }
 .error button {
     margin-left: 0.5rem;
@@ -769,7 +786,7 @@ tr:hover td { background: var(--row-hover); }
     font-size: 0.84rem;
     color: var(--muted);
     font-family: inherit;
-    transition: background var(--speed) ease, color var(--speed) ease, border-color var(--speed) ease;
+    transition: var(--transition-colors);
 }
 .logout-form button:hover { background: var(--error-bg); border-color: var(--error-border); color: var(--error-text); }
 
@@ -853,7 +870,7 @@ tr:hover td { background: var(--row-hover); }
     background: var(--surface-elevated);
     margin-bottom: 0.6rem;
     cursor: pointer;
-    transition: background var(--speed) ease, border-color var(--speed) ease;
+    transition: var(--transition-bg-border);
 }
 .login-external-btn:hover { background: var(--hover-bg); border-color: var(--primary); }
 .login-google-btn { color: #4285f4; border-color: color-mix(in srgb, #4285f4 45%, var(--border)); }
@@ -877,7 +894,7 @@ tr:hover td { background: var(--row-hover); }
     text-transform: uppercase;
     letter-spacing: 0.07em;
     font-family: inherit;
-    transition: background var(--speed) ease, color var(--speed) ease;
+    transition: var(--transition-bg-color);
 }
 .recent-toggle:hover { background: var(--hover-bg); color: var(--primary); }
 .recent-list { padding: 0.15rem 0.55rem 0.5rem; animation: de-fade-in var(--speed) ease-out; }
@@ -994,7 +1011,7 @@ tr:hover td { background: var(--row-hover); }
     border-radius: var(--radius-md);
     margin-bottom: 0.75rem;
     overflow: hidden;
-    transition: border-color var(--speed) ease, box-shadow var(--speed) ease;
+    transition: var(--transition-border-shadow);
 }
 .profiler-cm-host:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring); }
 .profiler-cm-host .CodeMirror { height: auto !important; min-height: 150px; font-family: var(--font-mono) !important; font-size: 0.85rem !important; line-height: 1.5 !important; }
@@ -1013,7 +1030,7 @@ tr:hover td { background: var(--row-hover); }
     font-size: 0.85rem;
     line-height: 1.5;
     margin-bottom: 0.75rem;
-    transition: border-color var(--speed) ease, box-shadow var(--speed) ease;
+    transition: var(--transition-border-shadow);
 }
 .profiler-query-textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--ring); }
 
@@ -1049,7 +1066,7 @@ tr:hover td { background: var(--row-hover); }
     color: var(--muted);
     font-family: inherit;
     border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-    transition: color var(--speed) ease, background var(--speed) ease;
+    transition: var(--transition-bg-color);
 }
 .profiler-tab:hover { color: var(--text); background: var(--hover-bg); }
 .profiler-tab--active { border-bottom-color: var(--primary); color: var(--primary); font-weight: 600; }
@@ -1199,7 +1216,7 @@ tr:hover td { background: var(--row-hover); }
     font-size: 0.82rem;
     cursor: pointer;
     background: var(--surface-elevated);
-    transition: border-color var(--speed) ease, background var(--speed) ease;
+    transition: var(--transition-bg-border);
 }
 .qb-col-label:hover { border-color: var(--primary); background: var(--hover-bg); }
 .qb-col-label:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); }
@@ -1228,7 +1245,7 @@ tr:hover td { background: var(--row-hover); }
     padding: 0.1rem 0.3rem;
     border-radius: var(--radius-sm);
     line-height: 1;
-    transition: color var(--speed) ease, background var(--speed) ease;
+    transition: var(--transition-bg-color);
 }
 .qb-join-remove-btn:hover { color: var(--error-text); background: var(--error-bg); }
 .qb-remove-btn { padding: 0.2rem 0.5rem; font-size: 0.8rem; }
@@ -1251,7 +1268,7 @@ tr:hover td { background: var(--row-hover); }
     margin-bottom: -1px;
     font-family: inherit;
     border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-    transition: color var(--speed) ease, border-color var(--speed) ease, background var(--speed) ease;
+    transition: var(--transition-colors);
 }
 .qb-mode-tab:hover { color: var(--text); background: var(--hover-bg); }
 .qb-mode-tab--active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
@@ -1601,7 +1618,21 @@ html.theme-dark li.CodeMirror-hint-active { background: #3b82f6; color: #ffffff;
 .home-bar-row { display: grid; grid-template-columns: minmax(90px, 190px) 1fr auto; align-items: center; gap: 0.7rem; }
 .home-bar-name { font-size: 0.82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); }
 .home-bar-track { height: 12px; background: var(--surface-elevated); border-radius: var(--radius-pill); overflow: hidden; }
-.home-bar-fill { display: block; height: 100%; border-radius: var(--radius-pill); background: linear-gradient(90deg, #2563eb, #7c3aed); transition: width var(--speed) ease; }
+@keyframes de-bar-fill {
+    from { transform: scaleX(0); }
+    to   { transform: scaleX(calc(var(--pct, 100) / 100)); }
+}
+.home-bar-fill {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: var(--radius-pill);
+    background: linear-gradient(90deg, #2563eb, #7c3aed);
+    transform: scaleX(calc(var(--pct, 100) / 100));
+    transform-origin: left;
+    animation: de-bar-fill 0.25s ease-out both;
+    animation-delay: calc(var(--i, 0) * 40ms);
+}
 .home-bar-fill--alt { background: linear-gradient(90deg, #0891b2, #2563eb); }
 .home-bar-value { font-size: 0.82rem; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; min-width: 2.5ch; text-align: right; }
 
@@ -1622,7 +1653,7 @@ html.theme-dark li.CodeMirror-hint-active { background: #3b82f6; color: #ffffff;
     border: 1px solid var(--border);
     border-radius: var(--radius-pill);
     cursor: pointer;
-    transition: background var(--speed) ease, color var(--speed) ease, border-color var(--speed) ease;
+    transition: var(--transition-colors);
 }
 .diagram-chip:hover { border-color: var(--primary); color: var(--primary); }
 .diagram-chip-mark { font-weight: 700; opacity: 0.7; }

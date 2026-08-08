@@ -44,7 +44,7 @@
         </span>
         @if (_copyFeedback is not null)
         {
-            <span class="copy-toast">@_copyFeedback</span>
+            <span class="copy-toast @(_copyClosing ? "copy-toast--closing" : "")">@_copyFeedback</span>
         }
     </div>
 
@@ -139,17 +139,17 @@
                                 </td>
                             }
                         </tr>
-                        @if (selectedRowForDetail == row)
+                        @if (selectedRowForDetail == row || _closingRowDetail == row)
                         {
                             <tr class="row-detail-row">
                                 <td colspan="@(columns.Count + 1)" class="row-detail-cell">
-                                    <div class="row-detail-panel">
+                                    <div class="row-detail-panel @(_closingRowDetail == row ? "row-detail-panel--closing" : "")">
                                         <div class="row-detail-header">
                                             <strong>Row Detail</strong>
-                                            <button @onclick="() => selectedRowForDetail = null" title="Close">✕</button>
+                                            <button @onclick="() => CloseRowDetailAsync(row)" title="Close">✕</button>
                                         </div>
                                         <table class="row-detail-table">
-                                            @foreach (var field in selectedRowForDetail.Fields)
+                                            @foreach (var field in row.Fields)
                                             {
                                                 <tr>
                                                     <td class="field-name">@field.Key</td>
@@ -212,6 +212,7 @@
     private bool isLoading = true;
     private string? error;
     private string? _copyFeedback;
+    private bool _copyClosing;
     private System.Threading.CancellationTokenSource? _copyCts;
 
     private bool HasNextPage => totalCount == -1
@@ -449,9 +450,38 @@
             await ApplyFilters();
     }
 
-    private void ToggleRowDetail(DataRow row)
+    private DataRow? _closingRowDetail;
+    private System.Threading.CancellationTokenSource? _rowDetailCts;
+
+    private async Task ToggleRowDetail(DataRow row)
     {
-        selectedRowForDetail = selectedRowForDetail == row ? null : row;
+        if (selectedRowForDetail == row)
+        {
+            await CloseRowDetailAsync(row);
+        }
+        else
+        {
+            _rowDetailCts?.Cancel();
+            _closingRowDetail = null;
+            selectedRowForDetail = row;
+        }
+    }
+
+    private async Task CloseRowDetailAsync(DataRow row)
+    {
+        _rowDetailCts?.Cancel();
+        _rowDetailCts = new System.Threading.CancellationTokenSource();
+        var token = _rowDetailCts.Token;
+        selectedRowForDetail = null;
+        _closingRowDetail = row;
+        StateHasChanged();
+        try
+        {
+            await Task.Delay(150, token);
+            if (_closingRowDetail == row) _closingRowDetail = null;
+            StateHasChanged();
+        }
+        catch (TaskCanceledException) { }
     }
 
     private async Task CopyCell(string value)
@@ -461,11 +491,16 @@
         {
             _copyCts?.Cancel();
             _copyCts = new System.Threading.CancellationTokenSource();
+            var token = _copyCts.Token;
             _copyFeedback = "Copied!";
+            _copyClosing = false;
             StateHasChanged();
             try
             {
-                await Task.Delay(1500, _copyCts.Token);
+                await Task.Delay(1500, token);
+                _copyClosing = true;
+                StateHasChanged();
+                await Task.Delay(150, token);
                 _copyFeedback = null;
                 StateHasChanged();
             }
