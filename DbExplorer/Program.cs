@@ -5,6 +5,7 @@ using DbExplorer.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.Negotiate;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Serilog;
@@ -72,6 +73,58 @@ if (authOpts.Google.Enabled)
         options.ClientSecret = authOpts.Google.ClientSecret;
         options.CallbackPath = "/signin-google";
         options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+    });
+}
+
+// Bastion platform SSO — additive alongside Windows/Google/local, per the
+// corrected (non-destructive) reading of Bastion's
+// plan-dbexplorer-integration.md. Unlike Negotiate/Google above, this needs no
+// hand-rolled controller action for the callback: AddOpenIdConnect's own
+// middleware handles the code exchange and calls SignInScheme automatically.
+if (authOpts.Bastion.Enabled)
+{
+    if (string.IsNullOrWhiteSpace(authOpts.Bastion.Authority) ||
+        string.IsNullOrWhiteSpace(authOpts.Bastion.ClientId) ||
+        string.IsNullOrWhiteSpace(authOpts.Bastion.ClientSecret))
+    {
+        Log.Warning(
+            "Auth:Bastion:Enabled is true but Authority/ClientId/ClientSecret is not fully configured. " +
+            "Bastion sign-in will be unavailable until all three values are set.");
+    }
+
+    authBuilder.AddOpenIdConnect("BastionIdentity", options =>
+    {
+        options.Authority = authOpts.Bastion.Authority;
+        options.ClientId = authOpts.Bastion.ClientId;
+        options.ClientSecret = authOpts.Bastion.ClientSecret;
+        options.ResponseType = "code";
+        options.SaveTokens = true;
+        options.SignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+        options.Scope.Add("openid");
+        options.Scope.Add("profile");
+        // GOTCHA (audit parity): unlike Windows/Google above, AddOpenIdConnect's
+        // middleware signs the cookie in directly - no controller action runs
+        // after a successful login, so without this handler a Bastion sign-in
+        // would be silently invisible to IAuditLogger while Windows/Google
+        // logins are both recorded. Resolved from HttpContext.RequestServices
+        // (not a captured DI parameter) since AddOpenIdConnect's own options
+        // delegate has no service-injection overload.
+        options.Events = new OpenIdConnectEvents
+        {
+            OnTokenValidated = context =>
+            {
+                var audit = context.HttpContext.RequestServices.GetRequiredService<IAuditLogger>();
+                var username = context.Principal?.Identity?.Name ?? "unknown";
+                audit.Log(new AuditEvent(DateTimeOffset.UtcNow, username, AuditAction.Login,
+                    null, null, -1, -1, Context: new Dictionary<string, string?> { ["provider"] = "bastion" }));
+                return Task.CompletedTask;
+            },
+        };
+        // GOTCHA (local dev only): Bastion.Identity's own default appsettings.json
+        // has no HTTPS certificate configured yet - Phase 4's docker-compose.yml
+        // runs it over plain http between containers. RequireHttpsMetadata must
+        // go back to true (the default) the moment Identity is reachable over TLS.
+        options.RequireHttpsMetadata = builder.Configuration.GetValue("Auth:Bastion:RequireHttpsMetadata", true);
     });
 }
 

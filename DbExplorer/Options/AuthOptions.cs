@@ -16,13 +16,22 @@ public sealed class AuthOptions
     public GoogleAuthOptions Google { get; init; } = new();
 
     /// <summary>
+    /// Single sign-on against a Bastion platform Identity service (OIDC authorization-code
+    /// flow). See Bastion's plan-dbexplorer-integration.md for the full design — this is
+    /// deliberately additive alongside Windows/Google/local, not a replacement for them; see
+    /// this repo's continue.md for why the plan's original "remove the old providers" Phase 1
+    /// was corrected to an additive approach instead.
+    /// </summary>
+    public BastionAuthOptions Bastion { get; init; } = new();
+
+    /// <summary>
     /// Returns true when the local login form should be shown and the /api/login endpoint
     /// should accept requests. The local store is active when:
     ///   - Auth:Local:Enabled is explicitly true, OR
     ///   - No external providers are enabled (automatic fallback — prevents being locked out).
     /// </summary>
     public bool IsLocalLoginActive =>
-        Local.Enabled || (!Windows.Enabled && !Google.Enabled);
+        Local.Enabled || (!Windows.Enabled && !Google.Enabled && !Bastion.Enabled);
 }
 
 public sealed class LocalAuthOptions
@@ -74,4 +83,22 @@ public sealed class GoogleAuthOptions
     /// When the list is empty, any authenticated Google account is allowed.
     /// </summary>
     public List<string> AllowList { get; init; } = [];
+}
+
+public sealed class BastionAuthOptions
+{
+    /// <summary>Enable single sign-on against a Bastion platform Identity service.</summary>
+    public bool Enabled { get; init; } = false;
+
+    /// <summary>Bastion.Identity's base URL, e.g. "https://identity.internal". Used for OIDC discovery.</summary>
+    public string Authority { get; init; } = string.Empty;
+
+    /// <summary>The OAuth client id this DbExplorer instance was registered under in Bastion.Identity's OAuth:Clients config.</summary>
+    public string ClientId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// The OAuth client secret. Keep this in user secrets or environment variables —
+    /// never commit it to source control, same rule as GoogleAuthOptions.ClientSecret.
+    /// </summary>
+    public string ClientSecret { get; init; } = string.Empty;
 }

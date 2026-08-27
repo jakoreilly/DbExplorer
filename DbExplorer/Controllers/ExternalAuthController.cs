@@ -145,6 +145,25 @@ public sealed class ExternalAuthController(
         catch (InvalidOperationException) { return Redirect("/"); }
     }
 
+    // ── Bastion platform SSO ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Triggers the Bastion Identity OIDC authorization-code flow. Unlike Windows/Google
+    /// above, there is no matching callback action here — AddOpenIdConnect's own middleware
+    /// (registered in Program.cs) handles the code exchange and signs the cookie in directly.
+    /// </summary>
+    [HttpGet("/auth/bastion")]
+    public IActionResult BastionSignIn([FromQuery] string returnUrl = "/")
+    {
+        var opts = authOptions.Value;
+        if (!opts.Bastion.Enabled)
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, "Bastion sign-in is not enabled.");
+
+        var safeReturn = IsLocalUrl(returnUrl) ? returnUrl : "/";
+        var properties = new AuthenticationProperties { RedirectUri = safeReturn };
+        return Challenge(properties, "BastionIdentity");
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
 
     /// <summary>
