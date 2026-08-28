@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using Serilog;
+using Serilog.Sinks.Grafana.Loki;
 using System.Threading.RateLimiting;
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,12 +18,23 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddUserSecrets<Program>(optional: true, reloadOnChange: true);
 
 // ── Serilog ──────────────────────────────────────────────────────────────────
-Log.Logger = new LoggerConfiguration()
+// plan-observability-search.md Phase 1 (Bastion platform) - ships logs to
+// Grafana Loki alongside the existing Console/File sinks, additively, gated
+// on Loki:Url being configured so a plain local `dotnet run` with no Bastion
+// infra behaves exactly as before this existed. "app" MUST read "dbexplorer"
+// to match the Emberwatch board selector Phase 2 of that plan will use.
+var lokiUrl = builder.Configuration["Loki:Url"];
+var loggerConfig = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
     .WriteTo.Console()
-    .WriteTo.File("logs/dbexplorer-.log", rollingInterval: RollingInterval.Day)
-    .CreateLogger();
+    .WriteTo.File("logs/dbexplorer-.log", rollingInterval: RollingInterval.Day);
+if (!string.IsNullOrWhiteSpace(lokiUrl))
+{
+    loggerConfig = loggerConfig.WriteTo.GrafanaLoki(lokiUrl,
+        labels: [new LokiLabel { Key = "app", Value = "dbexplorer" }]);
+}
+Log.Logger = loggerConfig.CreateLogger();
 
 builder.Host.UseSerilog();
 
