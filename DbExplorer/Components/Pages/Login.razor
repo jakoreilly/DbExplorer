@@ -49,7 +49,7 @@
     </form>
     }
 
-    @if (AuthOpts.Value.IsLocalLoginActive && (AuthOpts.Value.Windows.Enabled || AuthOpts.Value.Google.Enabled))
+    @if (AuthOpts.Value.IsLocalLoginActive && (AuthOpts.Value.Windows.Enabled || AuthOpts.Value.Google.Enabled || AuthOpts.Value.Bastion.Enabled))
     {
         <div class="login-divider"><span>or</span></div>
     }
@@ -62,6 +62,11 @@
     @if (AuthOpts.Value.Google.Enabled)
     {
         <a class="login-external-btn login-google-btn" href="/auth/google">Sign in with Google</a>
+    }
+
+    @if (AuthOpts.Value.Bastion.Enabled)
+    {
+        <a class="login-external-btn" href="/auth/bastion">Sign in with Bastion</a>
     }
 </div>
 
