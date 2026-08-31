@@ -1,10 +1,23 @@
+<div align="center">
+
 # DbExplorer
 
-> **A safe, self-hosted database explorer for teams that can't — or won't — give everyone direct database access.**
+**A safe, self-hosted database explorer for teams that can't — or won't — hand out direct database access.**
 
-DbExplorer is a read-only web UI for SQL Server, MySQL, and PostgreSQL. Drop it in front of any database and give your team (developers, analysts, support engineers) a polished interface to browse schemas, run queries, and build `SELECT` statements — without handing out connection strings or risking accidental writes.
+A read-only web UI for SQL Server, MySQL, and PostgreSQL. Drop it in front of any database and
+give developers, analysts, and support engineers a polished way to browse schemas, run `SELECT`s,
+and build queries visually — without connection strings changing hands, and without a write ever
+being possible. .NET 10 Blazor Server, self-hosted: no cloud dependency, no data leaving your
+network.
 
-Built with .NET 10 Blazor Server. No cloud dependency. No data leaves your network.
+[![.NET](https://img.shields.io/badge/.NET-10-5eb3ff?style=flat-square)](https://dotnet.microsoft.com)
+[![Blazor](https://img.shields.io/badge/Blazor-Server-5eb3ff?style=flat-square)](#project-structure)
+[![MCP](https://img.shields.io/badge/MCP-read--only-52d18b?style=flat-square)](#mcp-server-model-context-protocol)
+[![license](https://img.shields.io/badge/license-CC_BY--NC_4.0-93a1b3?style=flat-square)](LICENSE)
+
+<img src="docs/images/architecture.svg" alt="DbExplorer architecture: a browser reaches a self-hosted .NET 10 Blazor Server app; sign-in via local PBKDF2, Windows Negotiate, or Google OAuth all issue one session cookie; the services layer validates identifiers and parameterizes values; SqlConnectionFactory opens one read-only connection per request to SQL Server, MySQL, or PostgreSQL; an optional Bearer-token /mcp endpoint exposes seven read-only tools; an optional audit logger records who, what and when with no row data" width="100%">
+
+</div>
 
 ---
 
@@ -61,6 +74,10 @@ Expose your database schema and query execution to AI assistants via the [Model 
 ---
 
 ## Security Architecture
+
+<div align="center">
+<img src="docs/images/readonly.svg" alt="Two paths to SQL, both read-only by construction: generated queries pass a schema/object name through a static format check, a live parameterized catalog check, then quoting into a fixed template with values as Dapper parameters; arbitrary SQL from the Profiler editor or the MCP RunSelectQuery tool passes EnsureReadOnly — strip comments and string literals, reject multi-statement batches, require a SELECT/WITH/SHOW/EXPLAIN/DESCRIBE/DESC start, and scan for write-DML keywords and writable CTEs" width="100%">
+</div>
 
 ### Read-Only by Design
 
@@ -524,3 +541,9 @@ The following areas have no automated tests:
 - Canvas `JOIN` deduplication uses the first link per table pair. If two links exist for the same pair, the second is silently dropped. A future version could surface this as a validation warning in the UI.
 - `RunSelectQuery` MCP tool row cap (500 rows) is hard-coded. A `Mcp:MaxRows` config option could be added if operators need to tune it.
 - The `/api/login` endpoint is currently covered only by the global 120 req/min rate limiter. A dedicated low-count limiter (e.g. 5 req/min per IP) would further reduce brute-force risk.
+
+---
+
+<div align="center">
+<sub>The database stays where it is and stays read-only. DbExplorer is just the window you let people look through.</sub>
+</div>

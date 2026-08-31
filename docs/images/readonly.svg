@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 320" width="900" height="320" font-family="ui-sans-serif, -apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#93a1b3"/></marker>
+  </defs>
+
+  <rect width="900" height="320" rx="14" fill="#0e1116"/>
+
+  <text x="24" y="34" fill="#93a1b3" font-size="11.5" font-weight="600" letter-spacing=".07em">TWO PATHS TO SQL — BOTH READ-ONLY BY CONSTRUCTION</text>
+
+  <!-- generated path -->
+  <text x="24" y="62" fill="#5eb3ff" font-size="11.5" font-weight="650">browsing &amp; the Query Builder — SQL is generated, never user-typed</text>
+  <rect x="24" y="74" width="200" height="52" rx="9" fill="#161b23" stroke="#2a323f"/>
+  <text x="38" y="95" fill="#e6edf3" font-size="10.5" font-weight="650">schema / object name</text>
+  <text x="38" y="112" fill="#5b6878" font-size="9.5">from the tree or the canvas</text>
+  <rect x="256" y="74" width="180" height="52" rx="9" fill="#161b23" stroke="#2a323f"/>
+  <text x="270" y="95" fill="#93a1b3" font-size="10">static format check</text>
+  <text x="270" y="111" fill="#5b6878" font-size="9.5">no spaces, no metacharacters, ≤128</text>
+  <rect x="468" y="74" width="184" height="52" rx="9" fill="#161b23" stroke="#2a323f"/>
+  <text x="482" y="95" fill="#93a1b3" font-size="10">live catalog check</text>
+  <text x="482" y="111" fill="#5b6878" font-size="9.5">parameterized lookup — it must exist</text>
+  <rect x="684" y="74" width="192" height="52" rx="9" fill="#161b23" stroke="#52d18b" stroke-opacity=".45"/>
+  <text x="698" y="95" fill="#52d18b" font-size="10">quoted into a fixed template</text>
+  <text x="698" y="111" fill="#5b6878" font-size="9.5">values ride as Dapper parameters</text>
+  <path d="M224 100 L252 100" stroke="#93a1b3" stroke-width="1.6" marker-end="url(#m)"/>
+  <path d="M436 100 L464 100" stroke="#93a1b3" stroke-width="1.6" marker-end="url(#m)"/>
+  <path d="M652 100 L680 100" stroke="#93a1b3" stroke-width="1.6" marker-end="url(#m)"/>
+
+  <!-- ad-hoc path -->
+  <text x="24" y="164" fill="#f0b429" font-size="11.5" font-weight="650">the Profiler editor &amp; the MCP RunSelectQuery tool — arbitrary SQL, guarded</text>
+  <rect x="24" y="178" width="852" height="88" rx="10" fill="#161b23" stroke="#f0b429" stroke-opacity=".35"/>
+  <text x="40" y="200" fill="#e6edf3" font-size="11" font-weight="650">EnsureReadOnly, in order:</text>
+  <text x="40" y="220" fill="#93a1b3" font-size="10">1 · strip block + line comments and single-quoted string literals (so SELECT 'LOAD DATA' is still fine)</text>
+  <text x="40" y="236" fill="#93a1b3" font-size="10">2 · reject a multi-statement batch (a bare ; separator)</text>
+  <text x="40" y="252" fill="#93a1b3" font-size="10">3 · must begin SELECT / WITH / SHOW / EXPLAIN / DESCRIBE / DESC   ·   4 · scan for write-DML keywords and writable CTEs → reject</text>
+
+  <text x="24" y="298" fill="#93a1b3" font-size="10.5">The database account is read-only too (db_datareader / GRANT SELECT). Every check above is defence in depth on top of that, not instead of it.</text>
+</svg>
