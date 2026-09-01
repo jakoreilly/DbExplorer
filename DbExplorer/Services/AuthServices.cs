@@ -76,16 +76,20 @@ public static class LoginHandler
                 return Results.Redirect("/login?error=true");
             }
 
-            if (string.IsNullOrEmpty(code))
-                return Results.Redirect("/login?mfa=true");
-
+            // A missing or wrong second factor must be indistinguishable from a wrong
+            // password: any MFA-specific response (redirect, status, timing) confirms the
+            // username+password pair is valid and turns this endpoint into a password
+            // oracle for TOTP-enabled accounts. So we always run Verify (it treats an
+            // empty code as a failure), always return the same generic redirect, and only
+            // record the specific reason server-side in the audit log.
             if (!TotpHelper.Verify(user.TotpSecret, code))
             {
-                logger.LogWarning("Invalid TOTP code for user '{Username}'", user.Username);
+                var reason = string.IsNullOrEmpty(code) ? "totp_missing" : "totp_invalid";
+                logger.LogWarning("Failed second factor ({Reason}) for user '{Username}'", reason, user.Username);
                 audit.Log(new AuditEvent(DateTimeOffset.UtcNow, user.Username, AuditAction.LoginFailed,
                     null, null, -1, -1, Context: new Dictionary<string, string?>
-                    { ["provider"] = "local", ["reason"] = "totp_invalid" }));
-                return Results.Redirect("/login?mfa=true&error=true");
+                    { ["provider"] = "local", ["reason"] = reason }));
+                return Results.Redirect("/login?error=true");
             }
         }
 

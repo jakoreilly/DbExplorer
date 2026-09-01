@@ -270,7 +270,9 @@ That prints a `TotpSecret` and an `otpauth://` URI. Add the secret to the user's
 ]
 ```
 
-A user with a `TotpSecret` is prompted for a code after their password. To make it mandatory for **every** local user, set `Auth:Local:RequireTotp` to `true` — a local user without a `TotpSecret` is then refused sign-in rather than allowed past the missing factor.
+A user with a `TotpSecret` enters the current code in the **Authenticator code** field on the sign-in form alongside their username and password. To make it mandatory for **every** local user, set `Auth:Local:RequireTotp` to `true` — a local user without a `TotpSecret` is then refused sign-in rather than allowed past the missing factor.
+
+A wrong password, a missing code and a wrong code all fail with the same generic message and the same response — the endpoint never confirms that a username/password pair is valid on its own, so it can't be used as a password oracle for TOTP-enabled accounts. The specific reason (`totp_missing`, `totp_invalid`, …) is recorded only in the audit log.
 
 A lost authenticator is recovered by editing `appsettings.json` (remove or replace the `TotpSecret`) — the same file already holds the password hash, so there is no separate recovery-code store to manage.
 

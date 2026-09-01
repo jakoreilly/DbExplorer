@@ -20,17 +20,12 @@
         </span>
     </div>
 
-    @if (Error && Mfa)
+    @if (Error)
     {
-        <p class="error">That authenticator code was not accepted. Check your device clock and try the current code.</p>
-    }
-    else if (Error)
-    {
-        <p class="error">Invalid username or password.</p>
-    }
-    else if (Mfa)
-    {
-        <p class="hint">Two-factor is enabled for this account. Enter the current code from your authenticator app.</p>
+        @* One generic message for every local sign-in failure — a wrong password and a
+           missing/wrong authenticator code must look identical, or the difference is a
+           password oracle for TOTP-enabled accounts. *@
+        <p class="error">Invalid username, password, or authenticator code.</p>
     }
     @if (ErrorType == "google")
     {
@@ -63,7 +58,7 @@
             </label>
             <input id="totp" name="totp" type="text" inputmode="numeric" autocomplete="one-time-code"
                    pattern="[0-9]*" maxlength="6" placeholder="123456"
-                   required="@RequireTotp" autofocus="@Mfa" />
+                   required="@RequireTotp" />
         </div>
         <button type="submit">Sign In</button>
     </form>
@@ -96,10 +91,6 @@
 
     [SupplyParameterFromQuery]
     public string? ErrorType { get; set; }
-
-    /// <summary>Set by /api/login when the password was correct but a TOTP code is still needed.</summary>
-    [SupplyParameterFromQuery]
-    public bool Mfa { get; set; }
 
     private bool RequireTotp => AuthOpts.Value.Local.RequireTotp;
 }
