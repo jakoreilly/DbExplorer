@@ -29,6 +29,7 @@ public static class Cli
                     Environment.ExitCode = 2;
                     return true;
                 }
+                // Note: BCryptHelper is a legacy name; it produces PBKDF2-SHA256 hashes ("pbkdf2:...").
                 Console.WriteLine(BCryptHelper.Hash(args[1]));
                 return true;
 
