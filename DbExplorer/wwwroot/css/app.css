@@ -831,6 +831,16 @@ tr:hover td { background: var(--row-hover); }
 .login-brand h2 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.015em; margin: 0; }
 .login-brand .login-subtitle { font-size: 0.78rem; color: var(--muted); }
 .login-container .error { margin-bottom: 1rem; }
+.login-container .hint {
+    margin: 0 0 1rem;
+    padding: 0.55rem 0.7rem;
+    font-size: 0.82rem;
+    color: var(--muted);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+}
+.form-group .field-note { font-size: 0.75rem; font-weight: 400; color: var(--muted); }
 
 .form-group { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 1rem; }
 .form-group label { font-size: 0.83rem; font-weight: 600; color: var(--muted); }

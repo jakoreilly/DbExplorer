@@ -61,7 +61,7 @@ Expose your database schema and query execution to AI assistants via the [Model 
 - Disabled by default — opt-in per deployment
 
 ### Authentication
-- **Built-in credential store** — username + PBKDF2-hashed password in `appsettings.json`. Controlled by `Auth:Local:Enabled` (default `true`; cannot be disabled unless at least one external provider is enabled)
+- **Built-in credential store** — username + PBKDF2-hashed password in `appsettings.json`. Controlled by `Auth:Local:Enabled` (default `true`; cannot be disabled unless at least one external provider is enabled). Optional **TOTP two-factor** per user, or mandatory for all local users via `Auth:Local:RequireTotp`
 - **Windows Authentication (Negotiate/Kerberos)** — domain users sign in with one click, no password typed; disabled by default, enable with `Auth:Windows:Enabled = true`
 - **Google OAuth 2.0** — sign in with a Google account; optional email allow-list restricts access to specific domains (`*@yourcompany.com`) or individuals; disabled by default, enable with `Auth:Google:Enabled = true`
 - All providers issue the same secure session cookie after sign-in — a single auth scheme protects the whole app regardless of which provider was used
@@ -137,7 +137,7 @@ GRANT SELECT ON ALL TABLES IN SCHEMA public TO dbexplorer_ro;
 
 DbExplorer supports three authentication mechanisms, all of which issue a secure ASP.NET Core session cookie after sign-in:
 
-1. **Built-in credential store** — username + PBKDF2-hashed password configured in `appsettings.json`. Suitable for small teams or personal deployments. Controlled by `Auth:Local:Enabled` (default `true`; automatically stays on when no external provider is active to prevent lockout).
+1. **Built-in credential store** — username + PBKDF2-hashed password configured in `appsettings.json`. Suitable for small teams or personal deployments. Controlled by `Auth:Local:Enabled` (default `true`; automatically stays on when no external provider is active to prevent lockout). Supports optional TOTP two-factor — see [Two-factor (TOTP) for local users](#two-factor-totp-for-local-users).
 2. **Windows Authentication (Negotiate/Kerberos)** — domain users sign in with a single click via their Windows credentials. No password typed. Enable with `Auth:Windows:Enabled = true`. See [External Authentication](#external-authentication).
 3. **Google OAuth 2.0** — sign in with a Google account, optionally restricted to specific email domains. Enable with `Auth:Google:Enabled = true`. See [External Authentication](#external-authentication).
 
@@ -240,24 +240,39 @@ Edit `DbExplorer/appsettings.json` (the non-secret parts):
 }
 ```
 
-To generate a PBKDF2 hash for a new password, add a temporary line to `Program.cs` before `var builder = ...`:
-
-```csharp
-// Temporary — remove after generating hash
-if (args.Length > 0 && args[0] == "hash")
-{
-    Console.WriteLine(DbExplorer.Services.BCryptHelper.Hash(args[1]));
-    return;
-}
-```
-
-Then run:
+To generate a PBKDF2 hash for a new password:
 
 ```bash
-dotnet run --project DbExplorer hash "YourPassword"
+dotnet run --project DbExplorer -- hash "YourPassword"
 ```
 
-Copy the printed `pbkdf2:...` string into the `PasswordHash` field in `appsettings.json`, then remove the temporary code. The format is `pbkdf2:<base64-salt>:<base64-hash>` with 350,000 PBKDF2-SHA256 iterations.
+Copy the printed `pbkdf2:...` string into the `PasswordHash` field in `appsettings.json`. The format is `pbkdf2:<base64-salt>:<base64-hash>` with 350,000 PBKDF2-SHA256 iterations. (`hash` and `totp` below are built-in offline commands — the app runs them and exits instead of starting the web host.)
+
+#### Two-factor (TOTP) for local users
+
+The built-in credential store can require a second factor — a code from an authenticator app (Google Authenticator, Aegis, 1Password, …). This applies **only** to `Auth:Local`; Windows Negotiate, Google OAuth and Bastion OIDC each do their own MFA upstream, and the MCP bearer token is non-interactive.
+
+Enrol a user:
+
+```bash
+dotnet run --project DbExplorer -- totp admin
+```
+
+That prints a `TotpSecret` and an `otpauth://` URI. Add the secret to the user's entry and add the URI to an authenticator app:
+
+```json
+"Users": [
+  {
+    "Username": "admin",
+    "PasswordHash": "pbkdf2:...",
+    "TotpSecret": "T74OOVI7KI7YXH7ZAIREBWSFN4UAEBKD"
+  }
+]
+```
+
+A user with a `TotpSecret` is prompted for a code after their password. To make it mandatory for **every** local user, set `Auth:Local:RequireTotp` to `true` — a local user without a `TotpSecret` is then refused sign-in rather than allowed past the missing factor.
+
+A lost authenticator is recovered by editing `appsettings.json` (remove or replace the `TotpSecret`) — the same file already holds the password hash, so there is no separate recovery-code store to manage.
 
 ### 3. Run the application
 

@@ -55,6 +55,40 @@ public static class LoginHandler
             return Results.Redirect("/login?error=true");
         }
 
+        // Second factor (TOTP). Required for this user when Auth:Local:RequireTotp is on,
+        // or when the user opted in by having a TotpSecret configured. Only the local
+        // store passes through here — the external providers do their own MFA.
+        var totpEnforced = authOptions.Value.Local.RequireTotp || !string.IsNullOrWhiteSpace(user!.TotpSecret);
+        if (totpEnforced)
+        {
+            var code = form["totp"].ToString().Trim();
+
+            if (string.IsNullOrWhiteSpace(user!.TotpSecret))
+            {
+                // RequireTotp is on but this account has no secret. Refuse rather than
+                // let the missing factor be a way past it — the admin must enrol the user.
+                logger.LogError(
+                    "User '{Username}' has no TotpSecret but Auth:Local:RequireTotp is enabled; login refused",
+                    user.Username);
+                audit.Log(new AuditEvent(DateTimeOffset.UtcNow, user.Username, AuditAction.LoginFailed,
+                    null, null, -1, -1, Context: new Dictionary<string, string?>
+                    { ["provider"] = "local", ["reason"] = "totp_not_configured" }));
+                return Results.Redirect("/login?error=true");
+            }
+
+            if (string.IsNullOrEmpty(code))
+                return Results.Redirect("/login?mfa=true");
+
+            if (!TotpHelper.Verify(user.TotpSecret, code))
+            {
+                logger.LogWarning("Invalid TOTP code for user '{Username}'", user.Username);
+                audit.Log(new AuditEvent(DateTimeOffset.UtcNow, user.Username, AuditAction.LoginFailed,
+                    null, null, -1, -1, Context: new Dictionary<string, string?>
+                    { ["provider"] = "local", ["reason"] = "totp_invalid" }));
+                return Results.Redirect("/login?mfa=true&error=true");
+            }
+        }
+
         var claims = new List<Claim>
         {
             new(ClaimTypes.Name, user!.Username),
@@ -73,7 +107,12 @@ public static class LoginHandler
         return Results.Redirect("/");
     }
 
-    public record UserConfig(string Username, string PasswordHash);
+    /// <param name="TotpSecret">
+    /// Optional base32 TOTP secret. When set (or when <c>Auth:Local:RequireTotp</c> is on),
+    /// the user must also supply a current authenticator code to sign in. Generate with
+    /// <c>dotnet run --project DbExplorer -- totp &lt;username&gt;</c>.
+    /// </param>
+    public record UserConfig(string Username, string PasswordHash, string? TotpSecret = null);
 }
 
 public static class LogoutHandler

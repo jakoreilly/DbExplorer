@@ -20,9 +20,17 @@
         </span>
     </div>
 
-    @if (Error)
+    @if (Error && Mfa)
+    {
+        <p class="error">That authenticator code was not accepted. Check your device clock and try the current code.</p>
+    }
+    else if (Error)
     {
         <p class="error">Invalid username or password.</p>
+    }
+    else if (Mfa)
+    {
+        <p class="hint">Two-factor is enabled for this account. Enter the current code from your authenticator app.</p>
     }
     @if (ErrorType == "google")
     {
@@ -44,6 +52,18 @@
         <div class="form-group">
             <label for="password">Password</label>
             <input id="password" name="password" type="password" autocomplete="current-password" required />
+        </div>
+        <div class="form-group">
+            <label for="totp">
+                Authenticator code
+                @if (!RequireTotp)
+                {
+                    <span class="field-note">— only if two-factor is enabled for your account</span>
+                }
+            </label>
+            <input id="totp" name="totp" type="text" inputmode="numeric" autocomplete="one-time-code"
+                   pattern="[0-9]*" maxlength="6" placeholder="123456"
+                   required="@RequireTotp" autofocus="@Mfa" />
         </div>
         <button type="submit">Sign In</button>
     </form>
@@ -76,4 +96,10 @@
 
     [SupplyParameterFromQuery]
     public string? ErrorType { get; set; }
+
+    /// <summary>Set by /api/login when the password was correct but a TOTP code is still needed.</summary>
+    [SupplyParameterFromQuery]
+    public bool Mfa { get; set; }
+
+    private bool RequireTotp => AuthOpts.Value.Local.RequireTotp;
 }
