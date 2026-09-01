@@ -101,8 +101,9 @@ public static class TotpHelper
             ((hash[offset + 2] & 0xFF) << 8) |
             (hash[offset + 3] & 0xFF);
 
-        int otp = binary % (int)Math.Pow(10, Digits);
-        return otp.ToString(new string('0', Digits));
+        const int modulus = 1_000_000;
+        int otp = binary % modulus;
+        return otp.ToString("D6");
     }
 
     private static bool FixedTimeEquals(string a, string b)
