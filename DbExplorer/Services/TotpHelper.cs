@@ -7,7 +7,7 @@ namespace DbExplorer.Services;
 /// <summary>
 /// RFC 6238 (TOTP) / RFC 4226 (HOTP) with RFC 4648 base32 secrets, implemented on
 /// <see cref="System.Security.Cryptography"/> alone so it adds no NuGet dependency —
-/// same rule as <see cref="BCryptHelper"/>.
+/// same approach as the built-in PBKDF2 password-hash helper.
 ///
 /// Scope: this is the second factor for the built-in local credential store only
 /// (<c>Auth:Local</c>). Windows Negotiate, Google OAuth and Bastion OIDC each do
