@@ -11,6 +11,10 @@ using Microsoft.Extensions.Options;
 using Serilog;
 using Serilog.Sinks.Grafana.Loki;
 using System.Threading.RateLimiting;
+
+// Offline helper commands (hash / totp) — run and exit before any host is built.
+if (DbExplorer.Cli.TryRun(args)) return;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Load local developer secrets from the machine-specific user-secrets store.

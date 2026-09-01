@@ -23,9 +23,19 @@ public class ExternalAuthControllerBastionTests
     {
         // Options.Create is ambiguous here: the DbExplorer.Options NAMESPACE
         // collides with Microsoft.Extensions.Options's OPTIONS CLASS name.
+        // Authority/ClientId/ClientSecret must be present or BastionSignIn short-circuits
+        // to a "not fully configured" 503 before it ever reaches the Challenge (that guard
+        // was added in cd00705, after this fixture was written). The disabled-path test is
+        // unaffected — Enabled=false is checked first.
         var options = Microsoft.Extensions.Options.Options.Create(new AuthOptions
         {
-            Bastion = new BastionAuthOptions { Enabled = bastionEnabled },
+            Bastion = new BastionAuthOptions
+            {
+                Enabled = bastionEnabled,
+                Authority = "https://identity.example.test",
+                ClientId = "dbexplorer-test",
+                ClientSecret = "test-secret",
+            },
         });
         var audit = new Mock<IAuditLogger>();
         var logger = new Mock<ILogger<ExternalAuthController>>();
@@ -55,5 +65,24 @@ public class ExternalAuthControllerBastionTests
 
         var challenge = Assert.IsType<ChallengeResult>(result);
         Assert.Contains("BastionIdentity", challenge.AuthenticationSchemes);
+    }
+
+    [Fact]
+    public void BastionSignIn_WhenEnabledButNotConfigured_Returns503()
+    {
+        var options = Microsoft.Extensions.Options.Options.Create(new AuthOptions
+        {
+            Bastion = new BastionAuthOptions { Enabled = true }, // no Authority/ClientId/ClientSecret
+        });
+        var controller = new ExternalAuthController(
+            options, new Mock<IAuditLogger>().Object, new Mock<ILogger<ExternalAuthController>>().Object)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
+        };
+
+        var result = controller.BastionSignIn();
+
+        var statusResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, statusResult.StatusCode);
     }
 }

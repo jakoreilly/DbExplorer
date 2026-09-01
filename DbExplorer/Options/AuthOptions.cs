@@ -43,6 +43,24 @@ public sealed class LocalAuthOptions
     /// store active if no external provider is enabled, preventing accidental lockout.
     /// </summary>
     public bool Enabled { get; init; } = true;
+
+    /// <summary>
+    /// Require a TOTP (authenticator-app) code as a second factor for <em>every</em> local
+    /// user, in addition to the password. Defaults to <c>false</c>.
+    ///
+    /// When <c>true</c>, every entry under <c>DbExplorer:Users</c> must carry a
+    /// <c>TotpSecret</c> — a local user without one cannot sign in (the login is refused
+    /// rather than allowed to bypass the second factor). Individual users can also opt in
+    /// while this stays <c>false</c> simply by having a <c>TotpSecret</c> set.
+    ///
+    /// Only affects the local credential store. Windows Negotiate, Google OAuth and Bastion
+    /// OIDC handle their own MFA upstream; the MCP bearer token is non-interactive.
+    ///
+    /// Generate a secret with <c>dotnet run --project DbExplorer -- totp &lt;username&gt;</c>.
+    /// A lost authenticator is recovered by editing <c>appsettings.json</c> (the same file
+    /// that holds the password hash), so there is no separate recovery-code store.
+    /// </summary>
+    public bool RequireTotp { get; init; } = false;
 }
 
 public sealed class WindowsAuthOptions
